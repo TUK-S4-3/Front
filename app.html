@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GASSAIN | App</title>
+
+    <link rel="stylesheet" href="/src/css/base.css" />
+    <link rel="stylesheet" href="/src/css/app.css" />
+  </head>
+  <body>
+    <div class="pageOverlay" aria-hidden="true"></div>
+
+    <header class="topbar topbar--transparent">
+      <div class="container topbar__inner">
+        <a class="brand" href="/index.html" aria-label="홈으로 이동">
+          <span class="brand__mark brand__mark--gassain"></span>
+          <span class="brand__text brand__text--gassain">GASSAIN</span>
+        </a>
+
+        <div class="auth">
+          <span id="authGreeting" class="auth__greeting" aria-live="polite"></span>
+          <button id="logoutBtn" class="btn btn--ghost" type="button">로그아웃</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="appMain">
+      <div class="container">
+        <section class="appHero">
+          <h1 class="appTitle">이미지 생성</h1>
+          <p class="appDesc">
+            사진을 업로드하고 “생성하기” 버튼을 누르면 결과가 만들어집니다.
+          </p>
+        </section>
+
+        <section class="panelGrid">
+          <!-- 업로드/생성 -->
+          <article class="panelCard">
+            <h2 class="panelTitle">1) 사진 업로드</h2>
+
+            <div
+              id="dropzone"
+              class="dropzone"
+              role="button"
+              tabindex="0"
+              aria-label="이미지 드래그 앤 드롭 또는 클릭하여 업로드"
+            >
+              <div class="dropzone__inner">
+                <div class="dropzone__icon" aria-hidden="true">⬆</div>
+                <div class="dropzone__text">
+                  <div class="dropzone__headline">여기에 이미지를 드래그하거나 클릭하세요</div>
+                  <div class="dropzone__sub">PNG / JPG 권장</div>
+                </div>
+              </div>
+              <input id="fileInput" class="fileInput" type="file" accept="image/*" />
+            </div>
+            
+            <div class="previewColumn">
+            <!-- 원본 미리보기 -->
+            <div class="previewBox">
+                <div class="previewLabel">원본 미리보기</div>
+                <img id="originalPreview" class="previewImg" alt="업로드한 이미지 미리보기" />
+            <div id="previewEmpty" class="previewEmpty">아직 업로드된 이미지가 없습니다.</div>
+            </div>
+
+            <!-- 생성 버튼 -->
+            <button
+            id="generateBtn"
+            class="btn btn--primary btn--full generateBtn"
+            type="button"
+            disabled
+            >
+                생성하기
+            </button>
+            </div>
+            </article>
+
+          <!-- 결과 선택 -->
+          <article class="panelCard">
+            <div class="resultHeader">
+              <div>
+                <h2 class="panelTitle">2) 생성 결과</h2>
+                <p class="panelDesc"></p>
+              </div>
+
+              <div class="resultActions">
+                <button id="downloadBtn" class="btn btn--outline" type="button" disabled>
+                결과 다운로드
+                </button>
+              </div>
+            </div>
+
+            <div id="resultsGrid" class="resultsGrid">
+              <div class="emptyResults">아직 생성된 결과가 없습니다.</div>
+            </div>
+          </article>
+        </section>
+      </div>
+    </main>
+
+    <script type="module" src="/src/js/app.js"></script>
+  </body>
+</html>
