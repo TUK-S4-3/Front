@@ -81,6 +81,5 @@ form?.addEventListener("submit", (e) => {
   const user = { name: normalizeNameFromEmail(email), email };
   setAuthUser(user, remember);
 
-  // ✅ 여기서 app.html로 이동
   window.location.assign(getReturnUrl());
 });
