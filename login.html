@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Gaussian | Login</title> 
+    <link rel="stylesheet" href="/src/css/base.css" />
+    <link rel="stylesheet" href="/src/css/login.css" />
+  </head>
+  <body>
+
+    <header class="topbar topbar--compact">
+      <div class="container topbar__inner">
+        <a class="brand" href="/index.html" aria-label="홈으로 이동">
+          <span class="brand__mark"></span>
+          <span class="brand__text">GAUSSIAN</span>
+        </a>
+        <nav class="nav" aria-label="주요 메뉴">
+          <a class="nav__link" href="/index.html#features">기능</a>
+          <a class="nav__link" href="/index.html#about">소개</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="loginMain">
+      <section class="loginCard" aria-label="로그인 폼">
+        <h1 class="loginCard__title">로그인</h1>
+        <p class="loginCard__desc"></p>
+
+        <form id="loginForm" class="form" novalidate>
+          <label class="field">
+            <span class="field__label">이메일</span>
+            <input
+              id="email"
+              class="field__input"
+              type="email"
+              autocomplete="email"
+              placeholder="name@example.com"
+              required
+            />
+            <span class="field__hint">예: test@example.com</span>
+          </label>
+
+          <label class="field">
+            <span class="field__label">비밀번호</span>
+            <div class="field__row">
+              <input
+                id="password"
+                class="field__input"
+                type="password"
+                autocomplete="current-password"
+                placeholder="비밀번호"
+                minlength="4"
+                required
+              />
+              <button id="togglePw" class="btn btn--ghost btn--sm" type="button">표시</button>
+            </div>
+            <span class="field__hint">데모: 4자 이상</span>
+          </label>
+
+          <div class="formRow">
+            <label class="check">
+              <input id="remember" type="checkbox" />
+              <span>로그인 상태 유지</span>
+            </label>
+            <a class="link" href="#" id="forgotLink">비밀번호를 잊으셨나요?</a>
+          </div>
+
+          <button class="btn btn--primary btn--full" type="submit">로그인</button>
+
+          <p id="error" class="error" role="alert" hidden></p>
+
+          <div class="divider"><span>또는</span></div>
+
+          <button class="btn btn--outline btn--full" type="button" id="guestBtn">
+            게스트로 둘러보기
+          </button>
+
+          <p class="muted">
+            계정이 없나요?
+            <a class="link" href="#" id="signupLink">회원가입(데모)</a>
+          </p>
+        </form>
+      </section>
+    </main>
+
+    <script type="module" src="/src/js/login.js"></script>
+  </body>
+</html>
