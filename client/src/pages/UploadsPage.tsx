@@ -1,13 +1,11 @@
-import { useEffect, useMemo, useState, type ChangeEvent, type ReactNode } from "react";
-import { useNavigate } from "react-router-dom";
-import { myUploads } from "../api/uploads";
+import { useMemo, useState, type ChangeEvent, type ReactNode } from "react";
 import { completeVideo, presignVideo, putVideoToPresignedUrl } from "../api/videos";
 import type { Upload } from "../api/types";
 import Layout from "../components/Layout";
 import { Button } from "../components/ui/button";
 import {
   UploadCloud, RefreshCw, FileText,
-  CheckCircle2, ChevronRight,
+  CheckCircle2,
   Layers, HardDrive, Sparkles
 } from "lucide-react";
 
@@ -49,9 +47,7 @@ function stateMessage(state: UploadFlowState, progress: number, sceneId: string)
 }
 
 export default function UploadsPage() {
-  const nav = useNavigate();
   const [uploads, setUploads] = useState<Upload[]>([]);
-  const [isRefreshing, setIsRefreshing] = useState(false);
   const [err, setErr] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [uploadState, setUploadState] = useState<UploadFlowState>("idle");
@@ -67,28 +63,6 @@ export default function UploadsPage() {
     completed: uploads.filter(u => u.status === "COMPLETED").length,
     processing: uploads.filter(u => u.status === "PROCESSING").length,
   }), [uploads]);
-
-  async function refresh(isAuto = false) {
-    if (!isAuto) setIsRefreshing(true);
-    try {
-      const res = await myUploads();
-      setUploads(Array.isArray(res.uploads) ? res.uploads : []);
-    } catch (e: any) {
-      const msg = String(e?.message ?? e);
-      setErr(msg);
-      if (msg.includes("401") || msg.includes("403")) {
-        nav("/login");
-      }
-    } finally {
-      setIsRefreshing(false);
-    }
-  }
-
-  useEffect(() => {
-    refresh();
-    const t = setInterval(() => refresh(true), 5000);
-    return () => clearInterval(t);
-  }, []);
 
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     setFile(e.target.files?.[0] ?? null);
@@ -136,8 +110,22 @@ export default function UploadsPage() {
       setUploadState("success");
       setUploadProgress(100);
       setSuccessSceneId(complete.sceneId || presign.sceneId);
+      const uploadId = Number(complete.sceneId || presign.sceneId);
+      const normalizedId = Number.isFinite(uploadId) && uploadId > 0 ? uploadId : Date.now();
+      const nextStatus = complete.status || "UPLOADED";
+
+      setUploads((prev) => [
+        {
+          id: normalizedId,
+          status: nextStatus,
+          createdAt: new Date().toISOString(),
+          completedAt: nextStatus === "COMPLETED" ? new Date().toISOString() : null,
+          originalFileKey: presign.key,
+          resultFileKey: null,
+        },
+        ...prev.filter((u) => u.id !== normalizedId),
+      ]);
       setFile(null);
-      await refresh();
     } catch (e: unknown) {
       setUploadState("error");
       setErr(mapUploadError(e));
@@ -161,14 +149,9 @@ export default function UploadsPage() {
               </h1>
             </div>
 
-            <button
-              onClick={() => refresh()}
-              disabled={isRefreshing}
-              className="flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-[#1A3C34] hover:opacity-50 transition-opacity"
-            >
-              <RefreshCw size={16} className={`${isRefreshing ? "animate-spin" : ""}`} />
-              Sync Archive
-            </button>
+            <div className="text-[11px] font-black uppercase tracking-widest text-[#1A3C34]/40">
+              Session Archive View
+            </div>
           </div>
 
 
@@ -274,14 +257,15 @@ export default function UploadsPage() {
                   <tbody className="divide-y divide-[#1A3C34]/5">
                     {uploads.length === 0 ? (
                       <tr>
-                        <td colSpan={3} className="py-24 text-center text-[#1A3C34]/20 font-bold uppercase tracking-[0.3em] text-sm">No Assets Found</td>
+                        <td colSpan={3} className="py-24 text-center text-[#1A3C34]/20 font-bold uppercase tracking-[0.3em] text-sm">
+                          No Session Uploads
+                        </td>
                       </tr>
                     ) : (
                       uploads.map((u) => (
-                        <tr 
+                        <tr
                           key={u.id}
-                          className="group hover:bg-[#F2F0EB]/50 cursor-pointer transition-colors"
-                          onClick={() => u.id && nav(`/uploads/${u.id}`)}
+                          className="group hover:bg-[#F2F0EB]/50 transition-colors"
                         >
                           <td className="px-8 py-6">
                             <div className="flex items-center gap-4">
@@ -297,8 +281,8 @@ export default function UploadsPage() {
                           <td className="px-4 py-6 text-center">
                              <StatusTag status={u.status} />
                           </td>
-                          <td className="px-8 py-6 text-right">
-                            <ChevronRight size={18} className="ml-auto opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all text-[#D95F39]" />
+                          <td className="px-8 py-6 text-right text-[10px] font-bold uppercase tracking-wider text-[#1A3C34]/35">
+                            sceneId {u.id}
                           </td>
                         </tr>
                       ))
