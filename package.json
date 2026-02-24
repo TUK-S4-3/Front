@@ -1,0 +1,29 @@
+{
+  "name": "demo-repo",
+  "version": "0.2.0",
+  "description": "A sample package.json",
+  "homepage": "https://github.com/TUK-S4-3/Node.js#readme",
+  "bugs": {
+    "url": "https://github.com/TUK-S4-3/Node.js/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TUK-S4-3/Node.js.git"
+  },
+  "license": "MIT",
+  "author": "",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node src/index.js",
+    "dev": "nodemon --exec node src/index.js"
+  },
+  "dependencies": {
+    "@primer/css": "17.0.1",
+    "express": "^5.2.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.11"
+  }
+}
