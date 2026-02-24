@@ -51,6 +51,7 @@ jobs:
           [
             "set -eu",
             "cd ${DEPLOY_PATH}",
+            "git config --global --add safe.directory ${DEPLOY_PATH}",
             "git fetch origin main",
             "git checkout main",
             "git pull --ff-only origin main",
