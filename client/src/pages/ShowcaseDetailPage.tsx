@@ -1,15 +1,13 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import Layout from "../components/Layout";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card";
 import { AlertCircle, ArrowLeft, Copy, ExternalLink, Share2, Info, Loader2, CheckCircle2, Sparkles } from "lucide-react";
 import { getPublicGalleryItem, type PublicGalleryItem } from "../api/public";
 
 export default function ShowcaseDetailPage() {
   const { id } = useParams();
-  const nav = useNavigate();
   const itemId = Number(id);
 
   const [item, setItem] = useState<PublicGalleryItem | null>(null);

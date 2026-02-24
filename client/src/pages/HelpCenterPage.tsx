@@ -1,7 +1,6 @@
 import Layout from "../components/Layout";
 import { Badge } from "../components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card";
-import { HelpCircle, BookOpen, MessageCircle, Sparkles, ArrowUpRight } from "lucide-react";
+import { HelpCircle, BookOpen, Sparkles, ArrowUpRight } from "lucide-react";
 
 export default function HelpCenterPage() {
   return (

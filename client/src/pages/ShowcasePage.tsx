@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import Layout from "../components/Layout";
 import { Badge } from "../components/ui/badge";
-import { Card } from "../components/ui/card";
 import { getPublicGallery, type PublicGalleryItem } from "../api/public";
 import { RefreshCw, AlertCircle, Sparkles, Plus } from "lucide-react";
 import { useNavigate } from "react-router-dom";

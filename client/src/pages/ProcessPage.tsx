@@ -1,13 +1,6 @@
 import Layout from "../components/Layout";
 import { Badge } from "../components/ui/badge";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-} from "../components/ui/card";
-import { Camera, Sparkles, Box, Share2, CheckCircle2, Lightbulb, ArrowRight } from "lucide-react";
+import { Camera, Sparkles, Box, Share2, Lightbulb } from "lucide-react";
 
 export default function ProcessPage() {
   return (

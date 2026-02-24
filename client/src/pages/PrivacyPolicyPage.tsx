@@ -1,6 +1,5 @@
 import Layout from "../components/Layout";
 import { Badge } from "../components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Shield, Eye, Archive, Lock } from "lucide-react";
 
 export default function PrivacyPolicyPage() {

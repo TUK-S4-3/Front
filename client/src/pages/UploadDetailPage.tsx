@@ -5,7 +5,6 @@ import { getUpload } from "../api/uploads";
 import type { Upload } from "../api/types";
 import Layout from "../components/Layout";
 import { Button } from "../components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Separator } from "../components/ui/separator";
 import {
   ArrowLeft, Download, Box, CheckCircle2,

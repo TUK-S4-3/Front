@@ -1,12 +1,5 @@
 import Layout from "../components/Layout";
 import { Badge } from "../components/ui/badge";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-} from "../components/ui/card";
 import { Coins, HardDrive, ShieldAlert, Sparkles, Scale, Info } from "lucide-react";
 
 export default function ProductPage() {

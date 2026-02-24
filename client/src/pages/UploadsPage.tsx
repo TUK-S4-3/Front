@@ -16,7 +16,7 @@ export default function UploadsPage() {
   const [uploads, setUploads] = useState<Upload[]>([]);
   const [loading, setLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [err, setErr] = useState("");
+  const [, setErr] = useState("");
   const [file, setFile] = useState<File | null>(null);
 
   const stats = useMemo(() => ({
@@ -60,7 +60,7 @@ export default function UploadsPage() {
       await createUpload();
       setFile(null);
       await refresh();
-    } catch (e: any) {
+    } catch {
       setErr("업로드 중 오류가 발생했습니다.");
     } finally {
       setLoading(false);

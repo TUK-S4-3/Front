@@ -1,6 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import Layout from "../components/Layout";
-import { ArrowRight, Check, Play, Shield, Globe, Zap } from "lucide-react";
+import { ArrowRight, Check } from "lucide-react";
 import demoVideo from "../assets/demo.mp4";
 import { getToken } from "../api/http";
 import { Button } from "../components/ui/button";
@@ -315,19 +315,6 @@ function PriceCard({ title, price, features, featured }: any) {
       <button className={`w-full py-4 font-bold text-[12px] uppercase tracking-widest transition-all ${featured ? 'bg-[#F2F0EB] text-[#1A3C34] hover:bg-[#D95F39] hover:text-white' : 'bg-[#1A3C34] text-[#F2F0EB] hover:opacity-80'}`}>
         Select Plan
       </button>
-    </div>
-  );
-}
-
-function FooterNav({ title, links }: any) {
-  return (
-    <div className="space-y-8">
-      <h4 className="text-[11px] font-bold uppercase tracking-[0.3em] opacity-30">{title}</h4>
-      <ul className="space-y-4 text-sm font-bold opacity-60">
-        {links.map((link: string) => (
-          <li key={link}><Link to="#" className="hover:text-[#1A3C34] transition-colors">{link}</Link></li>
-        ))}
-      </ul>
     </div>
   );
 }

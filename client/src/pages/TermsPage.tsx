@@ -1,7 +1,6 @@
 import Layout from "../components/Layout";
 import { Badge } from "../components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card";
-import { Scale, ShieldCheck, Info, Sparkles, ArrowRight } from "lucide-react";
+import { Scale, ShieldCheck, Sparkles, ArrowRight } from "lucide-react";
 
 export default function TermsPage() {
   return (
