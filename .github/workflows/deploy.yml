@@ -51,10 +51,9 @@ jobs:
           [
             "set -eu",
             "cd ${DEPLOY_PATH}",
-            "git config --global --add safe.directory ${DEPLOY_PATH}",
-            "git fetch origin main",
-            "git checkout main",
-            "git pull --ff-only origin main",
+            "git -c safe.directory=${DEPLOY_PATH} fetch origin main",
+            "git -c safe.directory=${DEPLOY_PATH} checkout main",
+            "git -c safe.directory=${DEPLOY_PATH} pull --ff-only origin main",
             "cd client",
             "npm ci",
             "npm run build",
