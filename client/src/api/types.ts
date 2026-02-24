@@ -45,3 +45,17 @@ export type MyUploadsResponse = { ok: boolean; uploads: Upload[] };
 export type AdminUploadsResponse = { ok: boolean; uploads: Upload[] };
 export type AdminUploadResultResponse = { ok: boolean; uploadId: number; resultFileKey: string };
 
+export type VideoPresignResponse = {
+  ok: boolean;
+  sceneId: string;
+  key: string;
+  url: string;
+  expiresIn: number;
+};
+
+export type VideoCompleteResponse = {
+  ok: boolean;
+  sceneId: string;
+  status: "UPLOADED" | string;
+  inputVideoKey: string;
+};
