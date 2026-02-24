@@ -1,8 +1,35 @@
-import { Link } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "../components/ui/card";
+import { me } from "../api/auth";
 import logo from "../assets/logo.png";
 
 export default function LoginPage() {
+  const nav = useNavigate();
+  const [checking, setChecking] = useState(true);
+
+  useEffect(() => {
+    let mounted = true;
+    async function checkSession() {
+      try {
+        const res = await me();
+        if (!mounted) return;
+        if (res.authenticated) {
+          nav("/", { replace: true });
+          return;
+        }
+      } catch {
+        // ignore
+      } finally {
+        if (mounted) setChecking(false);
+      }
+    }
+    checkSession();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   const handlePendingProvider = (provider: string) => {
     window.alert(`${provider} 로그인은 현재 준비 중입니다. 빠르게 지원하겠습니다.`);
   };
@@ -38,58 +65,76 @@ export default function LoginPage() {
         </div>
 
         <Card className="border-none rounded-none bg-white shadow-[0_30px_60px_-15px_rgba(26,60,52,0.1)] overflow-hidden">
-          <CardHeader className="bg-[#1A3C34] text-[#F2F0EB] px-10 py-10 space-y-2">
-            <CardTitle className="text-3xl font-black uppercase tracking-tight">
-              Social Sign In
-            </CardTitle>
-            <CardDescription className="text-[#F2F0EB]/60 font-medium text-xs tracking-wide leading-relaxed">
-              구글, 카카오, 네이버 로그인만 제공합니다. <br />
-              로그인 유지 방식은 세션 기반 쿠키입니다.
-            </CardDescription>
-          </CardHeader>
+          {checking ? (
+            <>
+              <CardHeader className="bg-[#1A3C34] text-[#F2F0EB] px-10 py-10 space-y-2">
+                <CardTitle className="text-3xl font-black uppercase tracking-tight">
+                  Checking Session
+                </CardTitle>
+                <CardDescription className="text-[#F2F0EB]/60 font-medium text-xs tracking-wide leading-relaxed">
+                  로그인 상태를 확인하고 있습니다.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="px-10 py-10">
+                <div className="h-[52px] w-full animate-pulse rounded-[6px] bg-[#1A3C34]/5" />
+              </CardContent>
+            </>
+          ) : (
+            <>
+              <CardHeader className="bg-[#1A3C34] text-[#F2F0EB] px-10 py-10 space-y-2">
+                <CardTitle className="text-3xl font-black uppercase tracking-tight">
+                  Social Sign In
+                </CardTitle>
+                <CardDescription className="text-[#F2F0EB]/60 font-medium text-xs tracking-wide leading-relaxed">
+                  구글, 카카오, 네이버 로그인만 제공합니다. <br />
+                  로그인 유지 방식은 세션 기반 쿠키입니다.
+                </CardDescription>
+              </CardHeader>
 
-          <CardContent className="px-10 py-10 grid gap-4">
-            <a
-              href="/api/oauth2/login/google"
-              className="flex h-[52px] w-full items-center rounded-[6px] border border-[#747775] bg-white px-4 text-[#1F1F1F] transition-colors hover:bg-[#f8f9fa] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1A3C34]/20"
-            >
-              <span className="inline-flex h-5 w-5 items-center justify-center">
-                <img
-                  src="https://developers.google.com/static/identity/images/g-logo.png"
-                  alt="Google"
-                  className="h-5 w-5"
-                />
-              </span>
-              <span className="ml-3 text-[14px] font-medium leading-5 [font-family:Roboto,system-ui,sans-serif]">
-                Google로 로그인
-              </span>
-            </a>
+              <CardContent className="px-10 py-10 grid gap-4">
+                <a
+                  href="/api/oauth2/login/google"
+                  className="flex h-[52px] w-full items-center rounded-[6px] border border-[#747775] bg-white px-4 text-[#1F1F1F] transition-colors hover:bg-[#f8f9fa] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1A3C34]/20"
+                >
+                  <span className="inline-flex h-5 w-5 items-center justify-center">
+                    <img
+                      src="https://developers.google.com/static/identity/images/g-logo.png"
+                      alt="Google"
+                      className="h-5 w-5"
+                    />
+                  </span>
+                  <span className="ml-3 text-[14px] font-medium leading-5 [font-family:Roboto,system-ui,sans-serif]">
+                    Google로 로그인
+                  </span>
+                </a>
 
-            <button
-              type="button"
-              onClick={() => handlePendingProvider("Kakao")}
-              className="flex h-[52px] w-full items-center rounded-[6px] bg-[#FEE500] px-4 text-[rgba(0,0,0,0.85)] transition-colors hover:bg-[#f2db00] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1A3C34]/20"
-            >
-              <KakaoSymbol />
-              <span className="ml-3 text-[15px] font-semibold leading-none">카카오로 로그인</span>
-            </button>
+                <button
+                  type="button"
+                  onClick={() => handlePendingProvider("Kakao")}
+                  className="flex h-[52px] w-full items-center rounded-[6px] bg-[#FEE500] px-4 text-[rgba(0,0,0,0.85)] transition-colors hover:bg-[#f2db00] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1A3C34]/20"
+                >
+                  <KakaoSymbol />
+                  <span className="ml-3 text-[15px] font-semibold leading-none">카카오로 로그인</span>
+                </button>
 
-            <button
-              type="button"
-              onClick={() => handlePendingProvider("Naver")}
-              className="flex h-[52px] w-full items-center rounded-[6px] bg-[#03C75A] px-4 text-white transition-colors hover:bg-[#02b350] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1A3C34]/20"
-              aria-label="네이버 로그인"
-            >
-              <NaverSymbol />
-              <span className="ml-3 text-[15px] font-semibold leading-none">네이버로 로그인</span>
-            </button>
-          </CardContent>
+                <button
+                  type="button"
+                  onClick={() => handlePendingProvider("Naver")}
+                  className="flex h-[52px] w-full items-center rounded-[6px] bg-[#03C75A] px-4 text-white transition-colors hover:bg-[#02b350] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1A3C34]/20"
+                  aria-label="네이버 로그인"
+                >
+                  <NaverSymbol />
+                  <span className="ml-3 text-[15px] font-semibold leading-none">네이버로 로그인</span>
+                </button>
+              </CardContent>
 
-          <CardFooter className="px-10 pb-12">
-            <p className="w-full text-center text-[11px] font-bold text-[#1A3C34]/40">
-              소셜 계정으로 로그인하고 서비스를 시작하세요.
-            </p>
-          </CardFooter>
+              <CardFooter className="px-10 pb-12">
+                <p className="w-full text-center text-[11px] font-bold text-[#1A3C34]/40">
+                  소셜 계정으로 로그인하고 서비스를 시작하세요.
+                </p>
+              </CardFooter>
+            </>
+          )}
         </Card>
 
 

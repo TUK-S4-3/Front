@@ -1,13 +1,43 @@
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
-import { getToken, clearToken } from "../api/http";
+import { me, logout } from "../api/auth";
 import { LogOut, LayoutDashboard } from "lucide-react";
 import logo from "../assets/logo.png";
 
 export default function TopNav() {
   const nav = useNavigate();
-  const authed = !!getToken();
+  const [authed, setAuthed] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+    async function checkSession() {
+      try {
+        const res = await me();
+        if (!mounted) return;
+        setAuthed(!!res.authenticated);
+      } catch {
+        if (!mounted) return;
+        setAuthed(false);
+      }
+    }
+    checkSession();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } catch {
+      // ignore
+    } finally {
+      setAuthed(false);
+      nav("/");
+    }
+  };
 
   return (
     <header className="fixed top-0 z-50 w-full border-b border-black/5 bg-white/20 backdrop-blur-xl">
@@ -68,10 +98,7 @@ export default function TopNav() {
                 variant="ghost"
                 size="sm"
                 className="text-black/20 hover:text-rose-500 hover:bg-rose-500/5 transition-all"
-                onClick={() => {
-                  clearToken();
-                  nav("/login");
-                }}
+                onClick={handleLogout}
               >
                 <LogOut className="h-4 w-4" />
               </Button>

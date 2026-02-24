@@ -15,6 +15,18 @@ export type SignupResponse = {
   user: User;
 };
 
+export type SessionUser = {
+  id?: number;
+  email?: string;
+  name?: string;
+  provider?: string;
+};
+
+export type SessionResponse = {
+  authenticated: boolean;
+  user: SessionUser | null;
+};
+
 export type UploadStatus = "UPLOADED" | "PROCESSING" | "COMPLETED" | "FAILED" | string;
 
 export type Upload = {
@@ -32,5 +44,4 @@ export type MyUploadsResponse = { ok: boolean; uploads: Upload[] };
 
 export type AdminUploadsResponse = { ok: boolean; uploads: Upload[] };
 export type AdminUploadResultResponse = { ok: boolean; uploadId: number; resultFileKey: string };
-
 

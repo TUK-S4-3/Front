@@ -1,8 +1,9 @@
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Layout from "../components/Layout";
 import { ArrowRight, Check } from "lucide-react";
 import demoVideo from "../assets/demo.mp4";
-import { getToken } from "../api/http";
+import { me } from "../api/auth";
 import { Button } from "../components/ui/button";
 import { Link } from "react-router-dom";
 import back from "../assets/background.png";
@@ -28,7 +29,25 @@ const IMG = {
 
 export default function HomePage() {
   const nav = useNavigate();
-  const authed = !!getToken();
+  const [authed, setAuthed] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+    async function checkSession() {
+      try {
+        const res = await me();
+        if (!mounted) return;
+        setAuthed(!!res.authenticated);
+      } catch {
+        if (!mounted) return;
+        setAuthed(false);
+      }
+    }
+    checkSession();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   return (
     <Layout>

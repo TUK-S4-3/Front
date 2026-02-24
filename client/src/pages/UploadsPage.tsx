@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { clearToken, getToken } from "../api/http";
 import { createUpload, myUploads } from "../api/uploads";
 import type { Upload } from "../api/types";
 import Layout from "../components/Layout";
@@ -34,7 +33,6 @@ export default function UploadsPage() {
       const msg = String(e?.message ?? e);
       setErr(msg);
       if (msg.includes("401") || msg.includes("403")) {
-        clearToken();
         nav("/login");
       }
     } finally {
@@ -43,10 +41,6 @@ export default function UploadsPage() {
   }
 
   useEffect(() => {
-    if (!getToken()) {
-      nav("/login");
-      return;
-    }
     refresh();
     const t = setInterval(() => refresh(true), 5000);
     return () => clearInterval(t);

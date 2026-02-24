@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { clearToken } from "../api/http";
 import { getUpload } from "../api/uploads";
 import type { Upload } from "../api/types";
 import Layout from "../components/Layout";
@@ -35,7 +34,6 @@ export default function UploadDetailPage() {
         const msg = String(e?.message ?? e);
         setErr(msg);
         if (msg.includes("401") || msg.includes("403")) {
-          clearToken();
           nav("/login");
         }
       } finally {

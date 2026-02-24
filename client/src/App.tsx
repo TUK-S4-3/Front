@@ -1,11 +1,11 @@
 import { Routes, Route, useLocation, Navigate } from "react-router-dom";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import LoginPage from "./pages/LoginPage";
 import SignupPage from "./pages/SignupPage";
 import UploadsPage from "./pages/UploadsPage";
 import UploadDetailPage from "./pages/UploadDetailPage";
 import AdminUploadsPage from "./pages/AdminUploadsPage"; 
-import { getToken } from "./api/http";
+import { me } from "./api/auth";
 import HomePage from "./pages/HomePage";
 import ShowcasePage from "./pages/ShowcasePage";
 import ProcessPage from "./pages/ProcessPage";
@@ -22,10 +22,35 @@ import TermsPage from "./pages/TermsPage";
 
 // 인증 보호 컴포넌트
 function RequireAuth({ children }: { children: ReactNode }) {
-  const token = getToken();
   const loc = useLocation();
+  const [checking, setChecking] = useState(true);
+  const [authed, setAuthed] = useState(false);
 
-  if (!token) {
+  useEffect(() => {
+    let mounted = true;
+    async function checkSession() {
+      try {
+        const res = await me();
+        if (!mounted) return;
+        setAuthed(!!res.authenticated);
+      } catch {
+        if (!mounted) return;
+        setAuthed(false);
+      } finally {
+        if (mounted) setChecking(false);
+      }
+    }
+    checkSession();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  if (checking) {
+    return null;
+  }
+
+  if (!authed) {
     return <Navigate to="/login" replace state={{ from: loc.pathname }} />;
   }
   return <>{children}</>;
