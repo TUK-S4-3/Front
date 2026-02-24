@@ -21,10 +21,10 @@ jobs:
     environment: production
     timeout-minutes: 30
     env:
-      AWS_REGION: ${{ vars.AWS_REGION }}
-      EC2_INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
-      DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
-      SERVICE_NAME: ${{ vars.SERVICE_NAME }}
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      EC2_INSTANCE_ID: ${{ secrets.EC2_INSTANCE_ID }}
+      DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+      SERVICE_NAME: ${{ secrets.SERVICE_NAME }}
     steps:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -37,9 +37,9 @@ jobs:
         run: |
           set -euo pipefail
 
-          test -n "${AWS_REGION}" || { echo "vars.AWS_REGION is required"; exit 1; }
-          test -n "${EC2_INSTANCE_ID}" || { echo "vars.EC2_INSTANCE_ID is required"; exit 1; }
-          test -n "${DEPLOY_PATH}" || { echo "vars.DEPLOY_PATH is required"; exit 1; }
+          test -n "${AWS_REGION}" || { echo "secrets.AWS_REGION is required"; exit 1; }
+          test -n "${EC2_INSTANCE_ID}" || { echo "secrets.EC2_INSTANCE_ID is required"; exit 1; }
+          test -n "${DEPLOY_PATH}" || { echo "secrets.DEPLOY_PATH is required"; exit 1; }
 
       - name: Send deploy command via SSM
         id: send
