@@ -49,7 +49,7 @@ jobs:
 
           COMMANDS=$(cat <<EOF
           [
-            "set -euo pipefail",
+            "set -eu",
             "cd ${DEPLOY_PATH}",
             "git fetch origin main",
             "git checkout main",
