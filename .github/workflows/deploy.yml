@@ -50,13 +50,7 @@ jobs:
           COMMANDS=$(cat <<EOF
           [
             "set -eu",
-            "cd ${DEPLOY_PATH}",
-            "git -c safe.directory=${DEPLOY_PATH} fetch origin main",
-            "git -c safe.directory=${DEPLOY_PATH} checkout main",
-            "git -c safe.directory=${DEPLOY_PATH} pull --ff-only origin main",
-            "cd client",
-            "npm ci",
-            "npm run build",
+            "sudo -u ubuntu -H bash -lc 'set -eu; cd \"${DEPLOY_PATH}\"; git -c safe.directory=\"${DEPLOY_PATH}\" fetch origin main; git -c safe.directory=\"${DEPLOY_PATH}\" checkout main; git -c safe.directory=\"${DEPLOY_PATH}\" pull --ff-only origin main; cd client; npm ci; npm run build'",
             "if [ -n \\\"${SERVICE_NAME}\\\" ]; then sudo systemctl restart \\\"${SERVICE_NAME}\\\"; fi"
           ]
           EOF
