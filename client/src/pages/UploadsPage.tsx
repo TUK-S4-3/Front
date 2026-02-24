@@ -1,22 +1,66 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ChangeEvent, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import { createUpload, myUploads } from "../api/uploads";
+import { myUploads } from "../api/uploads";
+import { completeVideo, presignVideo, putVideoToPresignedUrl } from "../api/videos";
 import type { Upload } from "../api/types";
 import Layout from "../components/Layout";
 import { Button } from "../components/ui/button";
-import { 
-  UploadCloud, RefreshCw, FileText, 
-  CheckCircle2, ChevronRight, 
+import {
+  UploadCloud, RefreshCw, FileText,
+  CheckCircle2, ChevronRight,
   Layers, HardDrive, Sparkles
 } from "lucide-react";
+
+type UploadFlowState = "idle" | "presigning" | "uploading" | "completing" | "success" | "error";
+
+function mapUploadError(error: unknown) {
+  const message = String(error instanceof Error ? error.message : error);
+
+  if (message.includes("HTTP 400") && message.includes("지원하지 않는 영상 형식")) {
+    return "mp4 파일만 업로드 가능합니다.";
+  }
+  if (message.includes("HTTP 400") && message.includes("업로드된 영상을 찾을 수 없습니다")) {
+    return "업로드가 완료되지 않았습니다. 다시 시도해 주세요.";
+  }
+  if (message.includes("HTTP 401")) {
+    return "로그인이 필요합니다.";
+  }
+  if (message.includes("HTTP 403")) {
+    return "해당 업로드에 대한 권한이 없습니다.";
+  }
+  if (message.includes("HTTP 404")) {
+    return "업로드 세션이 만료되었거나 유효하지 않습니다.";
+  }
+  if (message.includes("HTTP 409")) {
+    return "이미 완료 처리된 업로드입니다.";
+  }
+  if (message.includes("S3_UPLOAD_FAILED")) {
+    return "S3 업로드에 실패했습니다. 잠시 후 다시 시도해 주세요.";
+  }
+  return "업로드 중 오류가 발생했습니다. 다시 시도해 주세요.";
+}
+
+function stateMessage(state: UploadFlowState, progress: number, sceneId: string) {
+  if (state === "presigning") return "업로드 준비 중…";
+  if (state === "uploading") return `S3 업로드 중… ${progress}%`;
+  if (state === "completing") return "업로드 완료 처리 중…";
+  if (state === "success" && sceneId) return `업로드 완료 (sceneId: ${sceneId})`;
+  return "";
+}
 
 export default function UploadsPage() {
   const nav = useNavigate();
   const [uploads, setUploads] = useState<Upload[]>([]);
-  const [loading, setLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [, setErr] = useState("");
+  const [err, setErr] = useState("");
   const [file, setFile] = useState<File | null>(null);
+  const [uploadState, setUploadState] = useState<UploadFlowState>("idle");
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [successSceneId, setSuccessSceneId] = useState("");
+
+  const isUploading = uploadState === "presigning" || uploadState === "uploading" || uploadState === "completing";
+  const statusText = stateMessage(uploadState, uploadProgress, successSceneId);
+  const alertText = uploadState === "error" ? err : statusText || err;
 
   const stats = useMemo(() => ({
     total: uploads.length,
@@ -46,18 +90,57 @@ export default function UploadsPage() {
     return () => clearInterval(t);
   }, []);
 
+  const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+    setFile(e.target.files?.[0] ?? null);
+    setErr("");
+    setUploadState("idle");
+    setUploadProgress(0);
+    setSuccessSceneId("");
+  };
+
   const handleUpload = async () => {
     if (!file) return;
+    const isMp4Mime = file.type === "video/mp4";
+    const isMp4Ext = file.name.toLowerCase().endsWith(".mp4");
+    if (!isMp4Mime && !isMp4Ext) {
+      setUploadState("error");
+      setErr("mp4 파일만 업로드 가능합니다.");
+      return;
+    }
+    const contentType = isMp4Mime ? file.type : "video/mp4";
+
     setErr("");
-    setLoading(true);
+    setUploadState("presigning");
+    setUploadProgress(0);
+    setSuccessSceneId("");
+
     try {
-      await createUpload();
+      const presign = await presignVideo({
+        filename: file.name,
+        contentType,
+      });
+
+      if (!presign.sceneId || !presign.key || !presign.url) {
+        throw new Error("PRESIGN_RESPONSE_INVALID");
+      }
+
+      setUploadState("uploading");
+      await putVideoToPresignedUrl(presign.url, file, contentType, setUploadProgress);
+
+      setUploadState("completing");
+      const complete = await completeVideo({
+        sceneId: String(presign.sceneId),
+        key: presign.key,
+      });
+
+      setUploadState("success");
+      setUploadProgress(100);
+      setSuccessSceneId(complete.sceneId || presign.sceneId);
       setFile(null);
       await refresh();
-    } catch {
-      setErr("업로드 중 오류가 발생했습니다.");
-    } finally {
-      setLoading(false);
+    } catch (e: unknown) {
+      setUploadState("error");
+      setErr(mapUploadError(e));
     }
   };
 
@@ -109,11 +192,18 @@ export default function UploadsPage() {
                     type="file"
                     id="file-upload"
                     className="hidden"
-                    onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                    accept="video/mp4"
+                    disabled={isUploading}
+                    onClick={(e) => {
+                      e.currentTarget.value = "";
+                    }}
+                    onChange={handleFileChange}
                   />
-                  <label 
-                    htmlFor="file-upload" 
-                    className="flex flex-col items-center justify-center aspect-video bg-[#F2F0EB] border border-dashed border-[#1A3C34]/20 hover:border-[#D95F39] transition-all cursor-pointer group"
+                  <label
+                    htmlFor="file-upload"
+                    className={`flex flex-col items-center justify-center aspect-video bg-[#F2F0EB] border border-dashed border-[#1A3C34]/20 transition-all group ${
+                      isUploading ? "cursor-not-allowed opacity-50" : "cursor-pointer hover:border-[#D95F39]"
+                    }`}
                   >
                     <UploadCloud size={32} className="text-[#1A3C34]/20 group-hover:text-[#D95F39] transition-colors" />
                     <p className="mt-4 text-[11px] font-bold text-[#1A3C34]/40 uppercase tracking-widest group-hover:text-[#D95F39]">Browse Files</p>
@@ -130,12 +220,42 @@ export default function UploadsPage() {
                   </div>
                 )}
 
+                {(uploadState !== "idle" || !!err) && (
+                  <div className={`p-4 border-l-4 ${uploadState === "error" ? "bg-[#D95F39]/10 border-[#D95F39]" : "bg-[#F2F0EB] border-[#1A3C34]/20"}`}>
+                    <div className={`text-[11px] font-bold uppercase tracking-wide ${uploadState === "error" ? "text-[#D95F39]" : "text-[#1A3C34]/70"}`}>
+                      {alertText}
+                    </div>
+                    {uploadState === "uploading" && (
+                      <div className="mt-3 h-2 bg-[#1A3C34]/10">
+                        <div
+                          className="h-full bg-[#D95F39] transition-all"
+                          style={{ width: `${uploadProgress}%` }}
+                        />
+                      </div>
+                    )}
+                    {uploadState === "success" && (
+                      <div className="mt-2 text-[10px] text-[#1A3C34]/60 font-bold uppercase tracking-wider">
+                        영상 저장 완료
+                      </div>
+                    )}
+                    {uploadState === "error" && file && (
+                      <button
+                        type="button"
+                        onClick={handleUpload}
+                        className="mt-3 text-[10px] font-black uppercase tracking-[0.2em] text-[#D95F39] border-b border-[#D95F39]"
+                      >
+                        재시도
+                      </button>
+                    )}
+                  </div>
+                )}
+
                 <Button
-                  disabled={!file || loading}
+                  disabled={!file || isUploading}
                   onClick={handleUpload}
                   className="w-full h-16 rounded-none bg-[#1A3C34] hover:bg-[#D95F39] text-[#F2F0EB] font-black text-[13px] tracking-[0.2em] transition-all"
                 >
-                  {loading ? <RefreshCw className="animate-spin" /> : "INITIALIZE ARCHIVE"}
+                  {isUploading ? <RefreshCw className="animate-spin" /> : "INITIALIZE ARCHIVE"}
                 </Button>
               </div>
             </div>
@@ -195,7 +315,7 @@ export default function UploadsPage() {
   );
 }
 
-function StatCard({ label, value, icon, active }: { label: string; value: number; icon: any; active?: boolean }) {
+function StatCard({ label, value, icon, active }: { label: string; value: number; icon: ReactNode; active?: boolean }) {
   return (
     <div className={`p-8 border border-[#1A3C34]/10 transition-all ${active ? 'bg-[#1A3C34] text-[#F2F0EB]' : 'bg-white text-[#2D2D2D]'}`}>
       <div className="flex justify-between items-start">
@@ -213,6 +333,7 @@ function StatCard({ label, value, icon, active }: { label: string; value: number
 
 function StatusTag({ status }: { status: string }) {
   const config: Record<string, { label: string, color: string }> = {
+    UPLOADED: { label: 'Uploaded', color: 'border border-[#1A3C34] text-[#1A3C34]' },
     COMPLETED: { label: 'Archived', color: 'bg-[#1A3C34] text-[#F2F0EB]' },
     PROCESSING: { label: 'Synthesizing', color: 'border border-[#1A3C34] text-[#1A3C34] animate-pulse' },
     FAILED: { label: 'System Error', color: 'bg-[#D95F39] text-white' },
