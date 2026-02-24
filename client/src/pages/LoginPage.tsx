@@ -1,34 +1,10 @@
-import { useState } from "react";
-import { useNavigate, Link } from "react-router-dom";
-import { login } from "../api/auth";
-
-import { Button } from "../components/ui/button";
-import { Input } from "../components/ui/input";
+import { Link } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "../components/ui/card";
-import { Label } from "../components/ui/label";
-import { Loader2, AlertCircle, ArrowRight } from "lucide-react";
-import type { FormEvent } from "react";
 import logo from "../assets/logo.png";
 
 export default function LoginPage() {
-  const nav = useNavigate();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState("");
-
-  const handleLogin = async (e: FormEvent) => {
-    e.preventDefault(); 
-    setErr("");
-    setLoading(true);
-    try {
-      await login({ email, password });
-      nav("/", { replace: true });
-    } catch (e: any) {
-      setErr(e?.message ?? "이메일 또는 비밀번호를 확인해주세요.");
-    } finally {
-      setLoading(false);
-    }
+  const handlePendingProvider = (provider: string) => {
+    window.alert(`${provider} 로그인은 현재 준비 중입니다. 빠르게 지원하겠습니다.`);
   };
 
   return (
@@ -64,95 +40,63 @@ export default function LoginPage() {
         <Card className="border-none rounded-none bg-white shadow-[0_30px_60px_-15px_rgba(26,60,52,0.1)] overflow-hidden">
           <CardHeader className="bg-[#1A3C34] text-[#F2F0EB] px-10 py-10 space-y-2">
             <CardTitle className="text-3xl font-black uppercase tracking-tight">
-              Sign In
+              Social Sign In
             </CardTitle>
             <CardDescription className="text-[#F2F0EB]/60 font-medium text-xs tracking-wide leading-relaxed">
-              스튜디오에 다시 오신 것을 환영합니다. <br />
-              프로젝트를 계속 진행하세요.
+              구글, 카카오, 네이버 로그인만 제공합니다. <br />
+              로그인 유지 방식은 세션 기반 쿠키입니다.
             </CardDescription>
           </CardHeader>
 
-          <form onSubmit={handleLogin}>
-            <CardContent className="px-10 py-10 grid gap-6">
-
-              <div className="grid gap-2 group">
-                <Label
-                  htmlFor="email"
-                  className="text-[10px] font-black text-[#1A3C34]/40 uppercase tracking-[0.2em] group-focus-within:text-[#D95F39] transition-colors"
-                >
-                  Email Address
-                </Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="name@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="h-14 rounded-none border-x-0 border-t-0 border-b-2 border-[#1A3C34]/10 bg-transparent px-0 text-[#1A3C34] focus-visible:ring-0 focus-visible:border-[#D95F39] transition-all placeholder:text-[#1A3C34]/20"
-                  required
+          <CardContent className="px-10 py-10 grid gap-4">
+            <a
+              href="/api/oauth2/login/google"
+              className="flex h-[52px] w-full items-center rounded-[6px] border border-[#747775] bg-white px-4 text-[#1F1F1F] transition-colors hover:bg-[#f8f9fa] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1A3C34]/20"
+            >
+              <span className="inline-flex h-5 w-5 items-center justify-center">
+                <img
+                  src="https://developers.google.com/static/identity/images/g-logo.png"
+                  alt="Google"
+                  className="h-5 w-5"
                 />
-              </div>
+              </span>
+              <span className="ml-3 text-[14px] font-medium leading-5 [font-family:Roboto,system-ui,sans-serif]">
+                Google로 로그인
+              </span>
+            </a>
 
- 
-              <div className="grid gap-2 group">
-                <Label
-                  htmlFor="password"
-                  className="text-[10px] font-black text-[#1A3C34]/40 uppercase tracking-[0.2em] group-focus-within:text-[#D95F39] transition-colors"
-                >
-                  Password
-                </Label>
-                <Input
-                  id="password"
-                  type="password"
-                  placeholder="Your passphrase"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="h-14 rounded-none border-x-0 border-t-0 border-b-2 border-[#1A3C34]/10 bg-transparent px-0 text-[#1A3C34] focus-visible:ring-0 focus-visible:border-[#D95F39] transition-all placeholder:text-[#1A3C34]/20"
-                  required
-                />
-              </div>
+            <button
+              type="button"
+              onClick={() => handlePendingProvider("Kakao")}
+              className="flex h-[52px] w-full items-center rounded-[6px] bg-[#FEE500] px-4 text-[rgba(0,0,0,0.85)] transition-colors hover:bg-[#f2db00] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1A3C34]/20"
+            >
+              <KakaoSymbol />
+              <span className="ml-3 text-[15px] font-semibold leading-none">카카오로 로그인</span>
+            </button>
 
-              {err && (
-                <div className="flex items-center gap-3 bg-[#D95F39]/5 p-4 text-[11px] font-bold text-[#D95F39] border-l-2 border-[#D95F39] animate-in fade-in slide-in-from-left-2">
-                  <AlertCircle size={16} />
-                  {err}
-                </div>
-              )}
-            </CardContent>
+            <button
+              type="button"
+              onClick={() => handlePendingProvider("Naver")}
+              className="flex h-[52px] w-full items-center rounded-[6px] bg-[#03C75A] px-4 text-white transition-colors hover:bg-[#02b350] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1A3C34]/20"
+              aria-label="네이버 로그인"
+            >
+              <NaverSymbol />
+              <span className="ml-3 text-[15px] font-semibold leading-none">네이버로 로그인</span>
+            </button>
+          </CardContent>
 
-            <CardFooter className="px-10 pb-12 flex flex-col gap-6">
-              <Button
-                type="submit"
-                className="w-full h-14 rounded-none bg-[#D95F39] hover:bg-[#1A3C34] text-white font-black uppercase tracking-[0.2em] transition-all duration-500 shadow-lg shadow-[#D95F39]/20"
-                disabled={loading}
-              >
-                {loading ? (
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                ) : (
-                  <span className="flex items-center gap-2">
-                    Access Studio <ArrowRight size={18} />
-                  </span>
-                )}
-              </Button>
-
-              <div className="text-center text-[11px] font-bold text-[#1A3C34]/40 uppercase tracking-widest">
-                New to the studio?{" "}
-                <Link
-                  to="/signup"
-                  className="text-[#D95F39] border-b border-[#D95F39]/20 hover:border-[#D95F39] transition-all pb-0.5 ml-2"
-                >
-                  Create Account
-                </Link>
-              </div>
-            </CardFooter>
-          </form>
+          <CardFooter className="px-10 pb-12">
+            <p className="w-full text-center text-[11px] font-bold text-[#1A3C34]/40">
+              소셜 계정으로 로그인하고 서비스를 시작하세요.
+            </p>
+          </CardFooter>
         </Card>
 
 
         <div className="mt-8 border border-[#1A3C34]/10 p-5 bg-white shadow-sm flex flex-col items-center gap-2">
-          <span className="text-[9px] font-black uppercase tracking-[0.3em] text-[#1A3C34]/40">Internal Testing Only</span>
-          <p className="text-[11px] text-[#1A3C34] font-medium font-mono tracking-tight">
-            test@test.com <span className="mx-2 text-[#D95F39]">/</span> 12345678
+          <span className="text-[9px] font-black uppercase tracking-[0.3em] text-[#1A3C34]/40">Secure Session</span>
+          <p className="text-[11px] text-[#1A3C34]/60 font-medium tracking-tight text-center">
+            로그인 상태는 서버가 발급한 세션 쿠키로 안전하게 유지됩니다.
           </p>
         </div>
 
@@ -161,5 +105,24 @@ export default function LoginPage() {
         </p>
       </div>
     </div>
+  );
+}
+
+function KakaoSymbol() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+      <path
+        fill="#000000"
+        d="M9 2c-3.87 0-7 2.57-7 5.74 0 2.07 1.34 3.88 3.33 4.88L4.6 15.8c-.06.22.18.4.37.27l3.42-2.24c.2.02.4.03.61.03 3.87 0 7-2.57 7-5.74S12.87 2 9 2z"
+      />
+    </svg>
+  );
+}
+
+function NaverSymbol() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+      <path fill="#FFFFFF" d="M3 3h4.5l3 4.37V3H15v12h-4.5l-3-4.37V15H3z" />
+    </svg>
   );
 }
