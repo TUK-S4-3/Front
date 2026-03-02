@@ -59,3 +59,110 @@ export type VideoCompleteResponse = {
   status: "UPLOADED" | string;
   inputVideoKey: string;
 };
+
+export type VideoScene = {
+  id: string;
+  title: string;
+  status: UploadStatus;
+  uploadId: string;
+  inputVideoKey: string;
+  sfmResultKey: string | null;
+  gaussianSplatKey: string | null;
+  meshKey: string | null;
+  thumbnailKey: string | null;
+  createdAt: string;
+  updatedAt: string;
+  finishedAt: string | null;
+};
+
+export type VideoScenesResponse = {
+  ok: boolean;
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  totalPages: number;
+  hasNext: boolean;
+  items: VideoScene[];
+};
+
+export type JobStatus = "queued" | "processing" | "ready" | "failed" | "canceled";
+
+export type SceneJob = {
+  id: number;
+  pipeline: string;
+  status: JobStatus;
+  createdAt: string;
+  finishedAt: string | null;
+  errorMessage: string | null;
+  resultExists: boolean;
+};
+
+export type SceneJobsResponse = {
+  sceneId: string | number;
+  jobs: SceneJob[];
+  nextCursor: string | null;
+};
+
+export type ViewerFileMeta = {
+  contentLength: number;
+  etag: string;
+  acceptRanges: boolean;
+};
+
+export type JobViewerResponse = {
+  jobId: number;
+  sceneId: number;
+  pipeline: string;
+  status: JobStatus;
+  format: string;
+  resultUrl: string | null;
+  file: ViewerFileMeta | null;
+  updatedAt: string;
+};
+
+export type CreateSceneJobPayload = {
+  imageCount: number;
+  overlap: number;
+  iteration: number;
+  pipeline?: "3dgs";
+};
+
+export type CreateSceneJobResponse = {
+  jobId: number;
+  sceneId: number;
+  status: string;
+  batchJobId?: string;
+  progressKey?: string;
+  statusKey?: string;
+};
+
+export type JobProgressStage =
+  | "DOWNLOADING"
+  | "EXTRACTING_FRAMES"
+  | "SFM_FEATURE"
+  | "SFM_MATCH"
+  | "SFM_MAPPER"
+  | "UNDISTORT"
+  | "GS_TRAINING"
+  | "UPLOADING"
+  | "DONE"
+  | string;
+
+export type JobProgressMetrics = {
+  imgRequested?: number;
+  frameCount?: number;
+  itersRequested?: number;
+  iter?: number;
+  iters?: number;
+};
+
+export type SceneJobProgressResponse = {
+  sceneId: string | number;
+  jobId: string | number;
+  status: string;
+  stage?: JobProgressStage;
+  progress?: number;
+  detail?: string;
+  updatedAt?: string;
+  metrics?: JobProgressMetrics;
+};

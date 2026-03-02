@@ -1,6 +1,7 @@
-import { useMemo, useState, type ChangeEvent, type ReactNode } from "react";
-import { completeVideo, presignVideo, putVideoToPresignedUrl } from "../api/videos";
-import type { Upload } from "../api/types";
+import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type ReactNode } from "react";
+import { useNavigate } from "react-router-dom";
+import { completeVideo, getMyScenes, presignVideo, putVideoToPresignedUrl } from "../api/videos";
+import type { VideoScene } from "../api/types";
 import Layout from "../components/Layout";
 import { Button } from "../components/ui/button";
 import {
@@ -38,6 +39,35 @@ function mapUploadError(error: unknown) {
   return "업로드 중 오류가 발생했습니다. 다시 시도해 주세요.";
 }
 
+function mapSceneFetchError(error: unknown) {
+  const message = String(error instanceof Error ? error.message : error);
+
+  if (message.includes("HTTP 401")) {
+    return "로그인이 필요합니다.";
+  }
+  if (message.includes("HTTP 400")) {
+    return "업로드 목록 조회 파라미터가 올바르지 않습니다.";
+  }
+  return "내 업로드 목록을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.";
+}
+
+function normalizeSceneStatus(status: string) {
+  const normalized = status.toLowerCase();
+  if (normalized === "completed" || normalized === "succeeded" || normalized === "ready") {
+    return "ready";
+  }
+  if (normalized === "processing" || normalized === "running") {
+    return "processing";
+  }
+  if (normalized === "failed") {
+    return "failed";
+  }
+  if (normalized === "canceled" || normalized === "cancelled") {
+    return "canceled";
+  }
+  return "queued";
+}
+
 function stateMessage(state: UploadFlowState, progress: number, sceneId: string) {
   if (state === "presigning") return "업로드 준비 중…";
   if (state === "uploading") return `S3 업로드 중… ${progress}%`;
@@ -47,22 +77,38 @@ function stateMessage(state: UploadFlowState, progress: number, sceneId: string)
 }
 
 export default function UploadsPage() {
-  const [uploads, setUploads] = useState<Upload[]>([]);
+  const nav = useNavigate();
+  const [scenes, setScenes] = useState<VideoScene[]>([]);
   const [err, setErr] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [uploadState, setUploadState] = useState<UploadFlowState>("idle");
   const [uploadProgress, setUploadProgress] = useState(0);
   const [successSceneId, setSuccessSceneId] = useState("");
+  const [sceneTitle, setSceneTitle] = useState("");
 
   const isUploading = uploadState === "presigning" || uploadState === "uploading" || uploadState === "completing";
   const statusText = stateMessage(uploadState, uploadProgress, successSceneId);
   const alertText = uploadState === "error" ? err : statusText || err;
 
   const stats = useMemo(() => ({
-    total: uploads.length,
-    completed: uploads.filter(u => u.status === "COMPLETED").length,
-    processing: uploads.filter(u => u.status === "PROCESSING").length,
-  }), [uploads]);
+    total: scenes.length,
+    completed: scenes.filter(scene => normalizeSceneStatus(scene.status) === "ready").length,
+    processing: scenes.filter(scene => normalizeSceneStatus(scene.status) === "processing").length,
+  }), [scenes]);
+
+  const fetchScenes = useCallback(async () => {
+    try {
+      const res = await getMyScenes(1);
+      setScenes(Array.isArray(res.items) ? res.items : []);
+      setErr("");
+    } catch (e: unknown) {
+      setErr(mapSceneFetchError(e));
+    }
+  }, []);
+
+  useEffect(() => {
+    void fetchScenes();
+  }, [fetchScenes]);
 
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     setFile(e.target.files?.[0] ?? null);
@@ -82,6 +128,7 @@ export default function UploadsPage() {
       return;
     }
     const contentType = isMp4Mime ? file.type : "video/mp4";
+    const title = sceneTitle.trim() || "Untitled Scene";
 
     setErr("");
     setUploadState("presigning");
@@ -92,6 +139,7 @@ export default function UploadsPage() {
       const presign = await presignVideo({
         filename: file.name,
         contentType,
+        title,
       });
 
       if (!presign.sceneId || !presign.key || !presign.url) {
@@ -107,25 +155,13 @@ export default function UploadsPage() {
         key: presign.key,
       });
 
+      const nextSceneId = complete.sceneId || presign.sceneId;
       setUploadState("success");
       setUploadProgress(100);
-      setSuccessSceneId(complete.sceneId || presign.sceneId);
-      const uploadId = Number(complete.sceneId || presign.sceneId);
-      const normalizedId = Number.isFinite(uploadId) && uploadId > 0 ? uploadId : Date.now();
-      const nextStatus = complete.status || "UPLOADED";
-
-      setUploads((prev) => [
-        {
-          id: normalizedId,
-          status: nextStatus,
-          createdAt: new Date().toISOString(),
-          completedAt: nextStatus === "COMPLETED" ? new Date().toISOString() : null,
-          originalFileKey: presign.key,
-          resultFileKey: null,
-        },
-        ...prev.filter((u) => u.id !== normalizedId),
-      ]);
+      setSuccessSceneId(nextSceneId);
+      await fetchScenes();
       setFile(null);
+      setSceneTitle("");
     } catch (e: unknown) {
       setUploadState("error");
       setErr(mapUploadError(e));
@@ -233,6 +269,23 @@ export default function UploadsPage() {
                   </div>
                 )}
 
+                <div className="space-y-5 border border-[#1A3C34]/10 p-5 bg-[#F2F0EB]/60">
+                  <div className="space-y-2">
+                    <label htmlFor="scene-title" className="block text-[10px] font-black uppercase tracking-[0.2em] text-[#1A3C34]/60">
+                      Title
+                    </label>
+                    <input
+                      id="scene-title"
+                      type="text"
+                      value={sceneTitle}
+                      disabled={isUploading}
+                      onChange={(e) => setSceneTitle(e.target.value)}
+                      placeholder="Untitled Scene"
+                      className="w-full h-11 px-3 bg-white border border-[#1A3C34]/20 text-[13px] font-medium text-[#1A3C34] placeholder:text-[#1A3C34]/30 focus:outline-none focus:border-[#D95F39]"
+                    />
+                  </div>
+                </div>
+
                 <Button
                   disabled={!file || isUploading}
                   onClick={handleUpload}
@@ -255,17 +308,26 @@ export default function UploadsPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#1A3C34]/5">
-                    {uploads.length === 0 ? (
+                    {scenes.length === 0 ? (
                       <tr>
                         <td colSpan={3} className="py-24 text-center text-[#1A3C34]/20 font-bold uppercase tracking-[0.3em] text-sm">
                           No Session Uploads
                         </td>
                       </tr>
                     ) : (
-                      uploads.map((u) => (
+                      scenes.map((scene) => (
                         <tr
-                          key={u.id}
-                          className="group hover:bg-[#F2F0EB]/50 transition-colors"
+                          key={scene.id}
+                          className="group hover:bg-[#F2F0EB]/50 transition-colors cursor-pointer"
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => nav(`/uploads/${encodeURIComponent(String(scene.id))}`)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              nav(`/uploads/${encodeURIComponent(String(scene.id))}`);
+                            }
+                          }}
                         >
                           <td className="px-8 py-6">
                             <div className="flex items-center gap-4">
@@ -273,16 +335,16 @@ export default function UploadsPage() {
                                 <HardDrive size={18} />
                               </div>
                               <div>
-                                <div className="text-[14px] font-black uppercase tracking-tighter text-[#1A3C34]">ARV-{String(u.id).slice(-4)}</div>
+                                <div className="text-[14px] font-black uppercase tracking-tighter text-[#1A3C34]">ARV-{String(scene.id).slice(-4)}</div>
                                 <div className="text-[10px] opacity-30 font-bold uppercase">Stored Geometry</div>
                               </div>
                             </div>
                           </td>
                           <td className="px-4 py-6 text-center">
-                             <StatusTag status={u.status} />
+                             <StatusTag status={scene.status} />
                           </td>
                           <td className="px-8 py-6 text-right text-[10px] font-bold uppercase tracking-wider text-[#1A3C34]/35">
-                            sceneId {u.id}
+                            sceneId {scene.id}
                           </td>
                         </tr>
                       ))
@@ -317,13 +379,13 @@ function StatCard({ label, value, icon, active }: { label: string; value: number
 
 function StatusTag({ status }: { status: string }) {
   const config: Record<string, { label: string, color: string }> = {
-    UPLOADED: { label: 'Uploaded', color: 'border border-[#1A3C34] text-[#1A3C34]' },
-    COMPLETED: { label: 'Archived', color: 'bg-[#1A3C34] text-[#F2F0EB]' },
-    PROCESSING: { label: 'Synthesizing', color: 'border border-[#1A3C34] text-[#1A3C34] animate-pulse' },
-    FAILED: { label: 'System Error', color: 'bg-[#D95F39] text-white' },
-    PENDING: { label: 'Queued', color: 'bg-[#F2F0EB] text-[#1A3C34]/40' },
+    queued: { label: "Queued", color: "bg-[#F2F0EB] text-[#1A3C34]/40" },
+    processing: { label: "Synthesizing", color: "border border-[#1A3C34] text-[#1A3C34] animate-pulse" },
+    ready: { label: "Archived", color: "bg-[#1A3C34] text-[#F2F0EB]" },
+    failed: { label: "System Error", color: "bg-[#D95F39] text-white" },
+    canceled: { label: "Canceled", color: "border border-[#D95F39] text-[#D95F39]" },
   };
-  const c = config[status] || config.PENDING;
+  const c = config[normalizeSceneStatus(status)] || config.queued;
   return (
     <span className={`px-4 py-1 text-[9px] font-black uppercase tracking-[0.15em] ${c.color}`}>
       {c.label}
