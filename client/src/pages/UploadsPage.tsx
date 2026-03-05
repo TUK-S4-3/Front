@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ChangeEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { completeVideo, getMyScenes, presignVideo, putVideoToPresignedUrl } from "../api/videos";
 import type { VideoScene } from "../api/types";
@@ -6,8 +6,7 @@ import Layout from "../components/Layout";
 import { Button } from "../components/ui/button";
 import {
   UploadCloud, RefreshCw, FileText,
-  CheckCircle2,
-  Layers, HardDrive, Sparkles
+  HardDrive, Sparkles
 } from "lucide-react";
 
 type UploadFlowState = "idle" | "presigning" | "uploading" | "completing" | "success" | "error";
@@ -79,6 +78,9 @@ function stateMessage(state: UploadFlowState, progress: number, sceneId: string)
 export default function UploadsPage() {
   const nav = useNavigate();
   const [scenes, setScenes] = useState<VideoScene[]>([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [hasNext, setHasNext] = useState(false);
   const [err, setErr] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [uploadState, setUploadState] = useState<UploadFlowState>("idle");
@@ -90,25 +92,25 @@ export default function UploadsPage() {
   const statusText = stateMessage(uploadState, uploadProgress, successSceneId);
   const alertText = uploadState === "error" ? err : statusText || err;
 
-  const stats = useMemo(() => ({
-    total: scenes.length,
-    completed: scenes.filter(scene => normalizeSceneStatus(scene.status) === "ready").length,
-    processing: scenes.filter(scene => normalizeSceneStatus(scene.status) === "processing").length,
-  }), [scenes]);
-
-  const fetchScenes = useCallback(async () => {
+  const fetchScenes = useCallback(async (page: number) => {
     try {
-      const res = await getMyScenes(1);
+      const res = await getMyScenes(page);
       setScenes(Array.isArray(res.items) ? res.items : []);
+      setTotalPages(Math.max(1, Number(res.totalPages) || 1));
+      setHasNext(Boolean(res.hasNext));
+      if (Number.isFinite(res.page) && res.page > 0 && res.page !== page) {
+        setCurrentPage(res.page);
+      }
       setErr("");
     } catch (e: unknown) {
+      setHasNext(false);
       setErr(mapSceneFetchError(e));
     }
   }, []);
 
   useEffect(() => {
-    void fetchScenes();
-  }, [fetchScenes]);
+    void fetchScenes(currentPage);
+  }, [fetchScenes, currentPage]);
 
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     setFile(e.target.files?.[0] ?? null);
@@ -159,7 +161,7 @@ export default function UploadsPage() {
       setUploadState("success");
       setUploadProgress(100);
       setSuccessSceneId(nextSceneId);
-      await fetchScenes();
+      await fetchScenes(currentPage);
       setFile(null);
       setSceneTitle("");
     } catch (e: unknown) {
@@ -188,13 +190,6 @@ export default function UploadsPage() {
             <div className="text-[11px] font-black uppercase tracking-widest text-[#1A3C34]/40">
               Session Archive View
             </div>
-          </div>
-
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-1">
-            <StatCard label="Total Assets" value={stats.total} icon={<Layers size={20} />} />
-            <StatCard label="Processing" value={stats.processing} icon={<RefreshCw size={20} />} active />
-            <StatCard label="Completed" value={stats.completed} icon={<CheckCircle2 size={20} />} />
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
@@ -353,6 +348,29 @@ export default function UploadsPage() {
                     )}
                   </tbody>
                 </table>
+                <div className="flex items-center justify-between px-8 py-4 border-t border-[#1A3C34]/10 bg-[#F2F0EB]/40">
+                  <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#1A3C34]/45">
+                    Page {currentPage} / {Math.max(1, totalPages)}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                      disabled={currentPage <= 1}
+                      className="h-9 px-4 text-[10px] font-black uppercase tracking-[0.2em] border border-[#1A3C34]/20 text-[#1A3C34] hover:border-[#D95F39] hover:text-[#D95F39] transition-colors disabled:opacity-35 disabled:cursor-not-allowed"
+                    >
+                      Prev
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+                      disabled={!hasNext}
+                      className="h-9 px-4 text-[10px] font-black uppercase tracking-[0.2em] border border-[#1A3C34]/20 text-[#1A3C34] hover:border-[#D95F39] hover:text-[#D95F39] transition-colors disabled:opacity-35 disabled:cursor-not-allowed"
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -360,22 +378,6 @@ export default function UploadsPage() {
         </div>
       </div>
     </Layout>
-  );
-}
-
-function StatCard({ label, value, icon, active }: { label: string; value: number; icon: ReactNode; active?: boolean }) {
-  return (
-    <div className={`p-8 border border-[#1A3C34]/10 transition-all ${active ? 'bg-[#1A3C34] text-[#F2F0EB]' : 'bg-white text-[#2D2D2D]'}`}>
-      <div className="flex justify-between items-start">
-        <div className="space-y-1">
-          <div className={`text-[10px] font-bold uppercase tracking-[0.2em] ${active ? 'text-[#F2F0EB]/40' : 'text-[#1A3C34]/30'}`}>{label}</div>
-          <div className="text-5xl font-black tracking-tighter italic font-serif">{value}</div>
-        </div>
-        <div className={`w-10 h-10 flex items-center justify-center ${active ? 'text-[#D95F39]' : 'text-[#1A3C34]/20'}`}>
-          {icon}
-        </div>
-      </div>
-    </div>
   );
 }
 
