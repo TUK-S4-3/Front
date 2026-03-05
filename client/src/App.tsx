@@ -4,6 +4,7 @@ import LoginPage from "./pages/LoginPage";
 import SignupPage from "./pages/SignupPage";
 import UploadsPage from "./pages/UploadsPage";
 import UploadDetailPage from "./pages/UploadDetailPage";
+import JobViewerPage from "./pages/JobViewerPage";
 import AdminUploadsPage from "./pages/AdminUploadsPage"; 
 import { me } from "./api/auth";
 import HomePage from "./pages/HomePage";
@@ -74,10 +75,18 @@ export default function App() {
         }
       />
       <Route
-        path="/uploads/:id"
+        path="/uploads/:sceneId"
         element={
           <RequireAuth>
             <UploadDetailPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/uploads/:sceneId/jobs/:jobId/viewer"
+        element={
+          <RequireAuth>
+            <JobViewerPage />
           </RequireAuth>
         }
       />

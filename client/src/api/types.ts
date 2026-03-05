@@ -99,6 +99,7 @@ export type SceneJob = {
 
 export type SceneJobsResponse = {
   sceneId: string | number;
+  inputVideoKey?: string | null;
   jobs: SceneJob[];
   nextCursor: string | null;
 };
@@ -111,7 +112,7 @@ export type ViewerFileMeta = {
 
 export type JobViewerResponse = {
   jobId: number;
-  sceneId: number;
+  sceneId: string | number;
   pipeline: string;
   status: JobStatus;
   format: string;

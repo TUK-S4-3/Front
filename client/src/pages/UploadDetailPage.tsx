@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { createSceneJob, getJobViewer, getSceneJobProgress, getSceneJobs } from "../api/videos";
-import type { JobProgressMetrics, JobStatus, JobViewerResponse, SceneJob } from "../api/types";
+import { createSceneJob, getSceneJobProgress, getSceneJobs } from "../api/videos";
+import type { JobProgressMetrics, JobStatus, SceneJob } from "../api/types";
 import Layout from "../components/Layout";
 import { Separator } from "../components/ui/separator";
-import PlyCanvasViewer from "../components/PlyCanvasViewer";
 import {
   ArrowLeft, CheckCircle2, AlertCircle,
   HardDrive, RefreshCw, Loader2, Sparkles
@@ -56,14 +55,6 @@ function mapJobFetchError(error: unknown) {
   return "Job 목록을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.";
 }
 
-function mapViewerFetchError(error: unknown) {
-  const message = String(error instanceof Error ? error.message : error);
-  if (message.includes("HTTP 401")) return "로그인이 필요합니다.";
-  if (message.includes("HTTP 403")) return "해당 Job에 접근 권한이 없습니다.";
-  if (message.includes("JOB_NOT_FOUND")) return "Job을 찾을 수 없습니다.";
-  return "Viewer 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.";
-}
-
 function mapCreateJobError(error: unknown) {
   const message = String(error instanceof Error ? error.message : error);
   if (message.includes("HTTP 401")) return "로그인이 필요합니다.";
@@ -77,26 +68,54 @@ function normalizeProgress(value: number | undefined) {
   return Math.min(1, Math.max(0, Number(value)));
 }
 
+function normalizePublicS3BaseUrl(baseUrl: string) {
+  return baseUrl.replace(/\/+$/, "");
+}
+
+function encodeS3KeyBySegment(key: string) {
+  return key.split("/").map((segment) => encodeURIComponent(segment)).join("/");
+}
+
+function buildPublicVideoUrl(baseUrl: string, inputVideoKey: string | null) {
+  const normalizedBaseUrl = normalizePublicS3BaseUrl(baseUrl.trim());
+  if (!normalizedBaseUrl || !inputVideoKey) return "";
+  return `${normalizedBaseUrl}/${encodeS3KeyBySegment(inputVideoKey)}`;
+}
+
 export default function UploadDetailPage() {
   const nav = useNavigate();
-  const { id } = useParams();
-  const sceneId = String(id ?? "");
+  const { sceneId } = useParams();
+  const sceneIdText = String(sceneId ?? "");
 
   const [jobs, setJobs] = useState<SceneJob[]>([]);
   const [selectedJobId, setSelectedJobId] = useState<number | null>(null);
-  const [viewer, setViewer] = useState<JobViewerResponse | null>(null);
+  const [inputVideoKey, setInputVideoKey] = useState<string | null>(null);
   const [jobProgress, setJobProgress] = useState<JobProgressView | null>(null);
   const [jobsLoading, setJobsLoading] = useState(true);
-  const [viewerLoading, setViewerLoading] = useState(false);
   const [creatingJob, setCreatingJob] = useState(false);
   const [err, setErr] = useState("");
   const [imageCount, setImageCount] = useState(50);
   const [overlap, setOverlap] = useState(10);
   const [iteration, setIteration] = useState(30000);
 
+  const publicS3BaseUrl = useMemo(() => {
+    const env = import.meta.env as Record<string, string | undefined>;
+    return String(env.VITE_PUBLIC_S3_BASE_URL ?? env.PUBLIC_S3_BASE_URL ?? "").trim();
+  }, []);
+
+  const sourceVideoUrl = useMemo(
+    () => buildPublicVideoUrl(publicS3BaseUrl, inputVideoKey),
+    [publicS3BaseUrl, inputVideoKey]
+  );
+
   const fetchJobs = useCallback(async (preferredJobId?: number | null) => {
-    const response = await getSceneJobs(sceneId, { limit: 20, pipeline: "3dgs" });
+    const response = await getSceneJobs(sceneIdText, { limit: 20, pipeline: "3dgs" });
     const nextJobs = Array.isArray(response.jobs) ? response.jobs : [];
+    const nextInputVideoKey =
+      typeof response.inputVideoKey === "string" && response.inputVideoKey.trim()
+        ? response.inputVideoKey
+        : null;
+    setInputVideoKey(nextInputVideoKey);
     setJobs(nextJobs);
     setSelectedJobId((current) => {
       const target = preferredJobId ?? current;
@@ -105,20 +124,10 @@ export default function UploadDetailPage() {
       }
       return nextJobs.length > 0 ? nextJobs[0].id : null;
     });
-  }, [sceneId]);
-
-  const fetchViewer = useCallback(async (jobId: number) => {
-    setViewerLoading(true);
-    try {
-      const response = await getJobViewer(jobId);
-      setViewer(response);
-    } finally {
-      setViewerLoading(false);
-    }
-  }, []);
+  }, [sceneIdText]);
 
   useEffect(() => {
-    if (!sceneId) {
+    if (!sceneIdText) {
       setErr("유효하지 않은 Scene ID입니다.");
       setJobsLoading(false);
       return;
@@ -146,39 +155,17 @@ export default function UploadDetailPage() {
     return () => {
       mounted = false;
     };
-  }, [fetchJobs, sceneId, nav]);
+  }, [fetchJobs, sceneIdText, nav]);
 
   useEffect(() => {
     if (selectedJobId == null) {
-      setViewer(null);
       setJobProgress(null);
       return;
     }
 
-    // Job 전환 시 이전 job의 진행 상태/뷰어가 남지 않도록 즉시 초기화
-    setViewer(null);
+    // Job 전환 시 이전 job의 진행 상태가 남지 않도록 즉시 초기화
     setJobProgress(null);
-
-    let mounted = true;
-    void (async () => {
-      try {
-        await fetchViewer(selectedJobId);
-        if (!mounted) return;
-        setErr("");
-      } catch (caught) {
-        if (!mounted) return;
-        const message = mapViewerFetchError(caught);
-        setErr(message);
-        if (message.includes("로그인이 필요합니다.") || message.includes("접근 권한이 없습니다.")) {
-          nav("/login");
-        }
-      }
-    })();
-
-    return () => {
-      mounted = false;
-    };
-  }, [selectedJobId, fetchViewer, nav]);
+  }, [selectedJobId]);
 
   const selectedJob = useMemo(
     () => jobs.find((job) => job.id === selectedJobId) ?? null,
@@ -193,14 +180,13 @@ export default function UploadDetailPage() {
 
   const currentStatus = useMemo(() => {
     if (currentProgress) return currentProgress.status;
-    if (viewer) return normalizeJobStatus(viewer.status);
     if (selectedJob) return normalizeJobStatus(selectedJob.status);
     return "queued";
-  }, [currentProgress, viewer, selectedJob]);
+  }, [currentProgress, selectedJob]);
 
   const syncJobProgress = useCallback(
     async (jobId: number, isCanceled?: () => boolean) => {
-      const progress = await getSceneJobProgress(sceneId, jobId);
+      const progress = await getSceneJobProgress(sceneIdText, jobId);
       if (isCanceled?.()) return;
 
       const normalizedStatus = normalizeJobStatus(progress.status);
@@ -221,12 +207,10 @@ export default function UploadDetailPage() {
       );
 
       if (normalizedStatus === "ready" || normalizedStatus === "failed" || normalizedStatus === "canceled") {
-        await fetchViewer(jobId);
-        if (isCanceled?.()) return;
         await fetchJobs(jobId);
       }
     },
-    [sceneId, fetchViewer, fetchJobs]
+    [sceneIdText, fetchJobs]
   );
 
   useEffect(() => {
@@ -268,11 +252,11 @@ export default function UploadDetailPage() {
   }, [selectedJobId, currentStatus, syncJobProgress]);
 
   const handleCreateJob = async () => {
-    if (!sceneId) return;
+    if (!sceneIdText) return;
     setCreatingJob(true);
     setErr("");
     try {
-      const created = await createSceneJob(sceneId, {
+      const created = await createSceneJob(sceneIdText, {
         pipeline: "3dgs",
         imageCount: Math.max(1, Math.round(imageCount)),
         overlap: Math.max(0, Math.round(overlap)),
@@ -295,8 +279,12 @@ export default function UploadDetailPage() {
     }
   };
 
-  const isReady = currentStatus === "ready";
-  const isProcessing = currentStatus === "processing" || currentStatus === "queued";
+  const viewerPath = useMemo(() => {
+    if (!sceneIdText || selectedJobId == null) return "";
+    return `/uploads/${encodeURIComponent(sceneIdText)}/jobs/${encodeURIComponent(String(selectedJobId))}/viewer`;
+  }, [sceneIdText, selectedJobId]);
+
+  const canOpenViewer = selectedJobId != null && currentStatus === "ready";
   const progressValue = currentProgress ? normalizeProgress(currentProgress.progress) : 0;
   const progressPercent = `${(progressValue * 100).toFixed(0)}%`;
   const progressFixed = progressValue.toFixed(2);
@@ -348,14 +336,14 @@ export default function UploadDetailPage() {
           <div className="flex flex-col md:flex-row md:items-end justify-between gap-8 border-b border-[#1A3C34]/10 pb-12">
             <div className="space-y-4">
               <div className="inline-flex items-center gap-2 text-[#D95F39] text-[11px] font-black uppercase tracking-[0.3em]">
-                <Sparkles size={14} /> Scene Viewer
+                <Sparkles size={14} /> Scene Detail
               </div>
               <h1 className="text-5xl md:text-7xl font-serif italic tracking-tight">
                 Scene <span className="font-sans not-italic font-black text-[#1A3C34] uppercase">Preview</span>
               </h1>
               <div className="flex items-center gap-3">
                 <span className="text-[10px] font-bold bg-[#1A3C34] text-[#F2F0EB] px-3 py-1 uppercase tracking-tighter">
-                  Scene ID: {sceneId}
+                  Scene ID: {sceneIdText}
                 </span>
                 {selectedJobId != null && (
                   <span className="text-[10px] font-bold text-[#1A3C34]/40 uppercase tracking-widest border-l border-[#1A3C34]/20 pl-3">
@@ -374,6 +362,30 @@ export default function UploadDetailPage() {
 
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
             <div className="lg:col-span-8 space-y-10">
+              <div className="relative aspect-video bg-white border border-[#1A3C34]/10 overflow-hidden">
+                {sourceVideoUrl ? (
+                  <video
+                    key={sourceVideoUrl}
+                    src={sourceVideoUrl}
+                    controls
+                    preload="metadata"
+                    className="h-full w-full object-contain bg-black"
+                  />
+                ) : (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-12">
+                    <div className="mx-auto h-20 w-20 bg-[#F2F0EB] flex items-center justify-center text-[#1A3C34] border border-[#1A3C34]/10">
+                      <HardDrive size={34} />
+                    </div>
+                    <h3 className="mt-6 text-3xl font-serif italic text-[#1A3C34]">
+                      Video Unavailable
+                    </h3>
+                    <p className="mt-2 text-[#1A3C34]/50 text-[13px] font-medium max-w-xs mx-auto leading-relaxed">
+                      inputVideoKey 또는 PUBLIC_S3_BASE_URL 설정을 확인해 주세요.
+                    </p>
+                  </div>
+                )}
+              </div>
+
               <div className="bg-white border border-[#1A3C34]/10 p-10 space-y-6">
                 <div className="flex items-center justify-between">
                   <h3 className="text-[12px] font-black uppercase tracking-[0.3em] text-[#1A3C34]/30">
@@ -406,36 +418,6 @@ export default function UploadDetailPage() {
                 )}
               </div>
 
-              <div className="relative aspect-video bg-white border border-[#1A3C34]/10 overflow-hidden">
-                {viewerLoading ? (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 text-center p-12">
-                    <Loader2 className="h-10 w-10 text-[#1A3C34]/20 animate-spin" />
-                    <p className="text-[12px] font-bold uppercase tracking-[0.3em] text-[#1A3C34]/30">
-                      Loading Viewer Data...
-                    </p>
-                  </div>
-                ) : isReady && viewer?.resultUrl ? (
-                  <PlyCanvasViewer key={viewer.jobId} url={viewer.resultUrl} />
-                ) : (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-12">
-                    <div className="mx-auto h-20 w-20 bg-[#F2F0EB] flex items-center justify-center text-[#1A3C34] border border-[#1A3C34]/10">
-                      <HardDrive size={34} className={isProcessing ? "animate-pulse" : ""} />
-                    </div>
-                    <h3 className="mt-6 text-3xl font-serif italic text-[#1A3C34]">
-                      {statusLabel(currentStatus)}
-                    </h3>
-                    <p className="mt-2 text-[#1A3C34]/50 text-[13px] font-medium max-w-xs mx-auto leading-relaxed">
-                      {currentStatus === "processing" || currentStatus === "queued"
-                        ? "선택한 Job의 결과를 생성 중입니다."
-                        : currentStatus === "failed"
-                        ? "Job 처리에 실패했습니다. 파라미터를 조정해 다시 생성해 주세요."
-                        : currentStatus === "canceled"
-                        ? "해당 Job은 취소되었습니다."
-                        : "뷰어에 표시할 결과 파일이 없습니다."}
-                    </p>
-                  </div>
-                )}
-              </div>
             </div>
 
             <div className="lg:col-span-4 space-y-8">
@@ -541,23 +523,32 @@ export default function UploadDetailPage() {
                     })
                   )}
                 </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!canOpenViewer) return;
+                    nav(viewerPath);
+                  }}
+                  disabled={!canOpenViewer}
+                  className="w-full h-12 border border-[#1A3C34] text-[#1A3C34] text-[11px] font-black uppercase tracking-[0.2em] hover:bg-[#1A3C34] hover:text-[#F2F0EB] transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-[#1A3C34]"
+                >
+                  {canOpenViewer ? "Open 3D Viewer" : "Viewer Available When Ready"}
+                </button>
               </div>
 
               <div className="bg-[#1A3C34] p-10 text-[#F2F0EB] space-y-6">
                 <div className="flex items-center gap-3 text-[#D95F39]">
                   <CheckCircle2 size={18} />
-                  <span className="text-[10px] font-black uppercase tracking-[0.2em]">Viewer Status</span>
+                  <span className="text-[10px] font-black uppercase tracking-[0.2em]">Job Status</span>
                 </div>
                 <p className="text-[13px] leading-relaxed opacity-70 font-medium">
                   Current status: <span className="text-[#F2F0EB] font-bold">{statusLabel(currentStatus)}</span>
                 </p>
-                {viewer?.file && (
-                  <div className="text-[11px] opacity-70 font-medium space-y-1">
-                    <div>Size: {viewer.file.contentLength.toLocaleString()} bytes</div>
-                    <div>ETag: {viewer.file.etag}</div>
-                    <div>Range: {viewer.file.acceptRanges ? "enabled" : "disabled"}</div>
-                  </div>
-                )}
+                <div className="text-[11px] opacity-70 font-medium space-y-1">
+                  <div>Job ID: {selectedJobId ?? "-"}</div>
+                  <div>Result Exists: {selectedJob ? (selectedJob.resultExists ? "yes" : "no") : "-"}</div>
+                </div>
                 {currentProgress?.metrics && (
                   <div className="text-[11px] opacity-70 font-medium space-y-1">
                     <div>imgRequested: {currentProgress.metrics.imgRequested ?? "-"}</div>
