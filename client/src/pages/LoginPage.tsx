@@ -50,13 +50,13 @@ export default function LoginPage() {
             <div className="h-20 w-20 rounded-full overflow-hidden border border-[#1A3C34]/10 bg-white p-2 mb-4 group-hover:scale-105 transition-transform duration-500 shadow-sm">
               <img
                 src={logo}
-                alt="VoxMesh Studio"
+                alt="Video To Scene"
                 className="h-full w-full object-cover scale-[1.5] origin-center"
                 draggable={false}
               />
             </div>
             <h1 className="text-3xl font-black tracking-tighter uppercase text-[#1A3C34]">
-              VoxMesh <span className="font-serif italic font-normal lowercase">Studio</span>
+              Video To Scene
             </h1>
           </Link>
           <p className="text-[10px] font-bold text-[#D95F39] mt-2 uppercase tracking-[0.4em]">
@@ -146,7 +146,7 @@ export default function LoginPage() {
         </div>
 
         <p className="mt-10 text-center text-[9px] text-[#1A3C34]/30 font-bold uppercase tracking-[0.3em]">
-          VoxMesh Studio &copy; 2026 Digital Archive
+          Video To Scene &copy; 2026 Digital Archive
         </p>
       </div>
     </div>

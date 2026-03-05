@@ -59,7 +59,7 @@ export default function HelpCenterPage() {
                 />
                 <FAQItem 
                   q="전문가용 소프트웨어와 호환되나요?" 
-                  a="네, VoxMesh Studio에서 생성된 결과물은 Blender, Unreal Engine, Unity 등 표준 3D 툴에서 즉시 사용 가능한 표준 포맷을 지향합니다."
+                  a="네, Video To Scene에서 생성된 결과물은 Blender, Unreal Engine, Unity 등 표준 3D 툴에서 즉시 사용 가능한 표준 포맷을 지향합니다."
                 />
               </div>
             </section>
@@ -83,7 +83,7 @@ export default function HelpCenterPage() {
           </div>
 
           <p className="text-center text-[10px] text-[#1A3C34]/20 font-bold uppercase tracking-widest">
-            © 2026 VOXMESH STUDIO • Support System
+            © 2026 VIDEO TO SCENE • Support System
           </p>
         </div>
       </div>

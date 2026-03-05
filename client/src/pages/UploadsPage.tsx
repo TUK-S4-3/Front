@@ -335,7 +335,9 @@ export default function UploadsPage() {
                                 <HardDrive size={18} />
                               </div>
                               <div>
-                                <div className="text-[14px] font-black uppercase tracking-tighter text-[#1A3C34]">ARV-{String(scene.id).slice(-4)}</div>
+                                <div className="text-[14px] font-black uppercase tracking-tighter text-[#1A3C34]">
+                                  {scene.title?.trim() || `Scene ${scene.id}`}
+                                </div>
                                 <div className="text-[10px] opacity-30 font-bold uppercase">Stored Geometry</div>
                               </div>
                             </div>

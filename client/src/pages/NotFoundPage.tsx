@@ -59,7 +59,7 @@ export default function NotFoundPage() {
 
           <div className="mt-12 text-center">
             <p className="text-[10px] font-black text-[#1A3C34]/20 uppercase tracking-[0.6em]">
-              VoxMesh Studio / Error Report 0x404
+              Video To Scene / Error Report 0x404
             </p>
           </div>
         </div>

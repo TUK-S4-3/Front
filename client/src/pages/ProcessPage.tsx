@@ -105,7 +105,7 @@ export default function ProcessPage() {
 
           <div className="flex justify-center items-center gap-6 pt-10">
             <div className="h-px w-12 bg-[#1A3C34]/10" />
-            <p className="text-[10px] text-[#1A3C34]/30 font-bold uppercase tracking-[0.5em]">Powered by VoxMesh AI Pipeline</p>
+            <p className="text-[10px] text-[#1A3C34]/30 font-bold uppercase tracking-[0.5em]">Powered by Video To Scene AI Pipeline</p>
             <div className="h-px w-12 bg-[#1A3C34]/10" />
           </div>
         </div>

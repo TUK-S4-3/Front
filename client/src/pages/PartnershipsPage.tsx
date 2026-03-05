@@ -66,7 +66,7 @@ export default function PartnershipsPage() {
                 <div className="absolute top-0 right-0 w-2 h-full bg-[#D95F39] transition-transform translate-y-full group-hover:translate-y-0 duration-500" />
                 <CardHeader className="p-0 mb-6">
                   <CardTitle className="text-[18px] font-black uppercase tracking-tight text-[#1A3C34]">Collaboration</CardTitle>
-                  <CardDescription className="font-medium text-[#1A3C34]/40">VoxMesh와 함께 새로운 차원을 설계하세요.</CardDescription>
+                  <CardDescription className="font-medium text-[#1A3C34]/40">Video To Scene과 함께 새로운 차원을 설계하세요.</CardDescription>
                 </CardHeader>
                 <CardContent className="p-0 space-y-6">
                   <p className="text-[13px] leading-relaxed text-[#1A3C34]/60">
@@ -94,7 +94,7 @@ export default function PartnershipsPage() {
 
 
           <p className="text-center text-[10px] text-[#1A3C34]/20 font-bold uppercase tracking-widest pt-12 border-t border-[#1A3C34]/5">
-            © 2026 VOXMESH STUDIO • Business & Partnerships Department
+            © 2026 VIDEO TO SCENE • Business & Partnerships Department
           </p>
         </div>
       </div>

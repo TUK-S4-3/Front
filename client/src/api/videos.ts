@@ -115,6 +115,16 @@ export async function putVideoToPresignedUrl(
 
     xhr.onerror = () => reject(new Error("S3_UPLOAD_FAILED NETWORK_ERROR"));
     xhr.ontimeout = () => reject(new Error("S3_UPLOAD_FAILED TIMEOUT"));
+    console.log(
+      "[S3_UPLOAD] file",
+      file,
+      "isFile=",
+      file instanceof File,
+      "size=",
+      file?.size,
+      "type=",
+      file?.type
+    );
     xhr.send(file);
   });
 }

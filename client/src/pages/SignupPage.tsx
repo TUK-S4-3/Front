@@ -60,13 +60,13 @@ export default function SignupPage() {
             <div className="h-20 w-20 rounded-full overflow-hidden border border-[#1A3C34]/10 bg-white p-2 mb-4 group-hover:scale-105 transition-transform duration-500 shadow-sm">
               <img
                 src={logo}
-                alt="VoxMesh Studio"
+                alt="Video To Scene"
                 className="h-full w-full object-cover scale-[1.5] origin-center"
                 draggable={false}
               />
             </div>
             <h1 className="text-3xl font-black tracking-tighter uppercase text-[#1A3C34]">
-              VoxMesh <span className="font-serif italic font-normal lowercase">Studio</span>
+              Video To Scene
             </h1>
           </Link>
           <p className="text-[10px] font-bold text-[#D95F39] mt-2 uppercase tracking-[0.4em]">
@@ -81,7 +81,7 @@ export default function SignupPage() {
               Create <br /> Account
             </CardTitle>
             <CardDescription className="text-[#F2F0EB]/60 font-medium text-xs tracking-wide leading-relaxed">
-              복스메쉬 스튜디오의 멤버가 되어 <br />
+              Video To Scene 멤버가 되어 <br />
               지능형 3D 에셋 생성을 시작하세요.
             </CardDescription>
           </CardHeader>

@@ -43,7 +43,7 @@ export default function TermsPage() {
                   Our Commitment <br />& Your Responsibility
                 </h3>
                 <p className="mt-4 text-[13px] text-[#1A3C34]/50 font-medium leading-relaxed">
-                  VoxMesh Studio는 혁신적인 3D 자산 생성을 지원합니다. 원활한 서비스 제공을 위해 아래의 가이드라인을 준수해 주시기 바랍니다.
+                  Video To Scene는 혁신적인 3D 자산 생성을 지원합니다. 원활한 서비스 제공을 위해 아래의 가이드라인을 준수해 주시기 바랍니다.
                 </p>
               </div>
 
@@ -94,7 +94,7 @@ export default function TermsPage() {
 
    
           <p className="text-center text-[10px] text-[#1A3C34]/20 font-bold uppercase tracking-widest pt-10">
-            Last Updated: February 2026 • VoxMesh Studio Legal Team
+            Last Updated: February 2026 • Video To Scene Legal Team
           </p>
         </div>
       </div>

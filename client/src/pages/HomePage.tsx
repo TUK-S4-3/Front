@@ -245,7 +245,7 @@ export default function HomePage() {
       <footer className="bg-black text-white py-24 px-8 border-t border-white/5">
         <div className="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-4 gap-12 text-left">
           <div className="col-span-1 md:col-span-2 space-y-6">
-            <h3 className="text-2xl font-black tracking-tighter uppercase">VoxMesh.</h3>
+            <h3 className="text-2xl font-black tracking-tighter uppercase">Video To Scene.</h3>
             <p className="text-white/30 max-w-xs text-sm font-medium">
               세상의 모든 면을 데이터로 기록합니다.
             </p>

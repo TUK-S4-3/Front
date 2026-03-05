@@ -81,7 +81,7 @@ export default function AdminUploadsPage() {
                   </Badge>
                 </div>
                 <p className="text-[#1A3C34]/60 font-bold text-[13px] uppercase tracking-widest">
-                  VoxMesh Pipeline Management & Archiving
+                  Video To Scene Pipeline Management & Archiving
                 </p>
               </div>
             </div>

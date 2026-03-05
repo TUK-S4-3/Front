@@ -25,7 +25,7 @@ export default function ProductPage() {
                 Terms <span className="font-sans not-italic font-black text-[#1A3C34] uppercase text-5xl md:text-7xl">&</span> Value
               </h1>
               <p className="text-[#1A3C34]/60 font-medium max-w-2xl text-lg leading-relaxed">
-                사용자의 창의성을 보호하고 기술의 공정한 가치를 나누기 위한 VoxMesh Studio의 약속입니다.
+                사용자의 창의성을 보호하고 기술의 공정한 가치를 나누기 위한 Video To Scene의 약속입니다.
                 <span className="block mt-2 italic text-[#1A3C34]/30 font-serif text-base font-normal">
                   Our principles are designed to ensure a sustainable 3D scanning ecosystem for all creators.
                 </span>
@@ -84,7 +84,7 @@ export default function ProductPage() {
                   <h2 className="text-3xl font-black uppercase tracking-tight">Beta Service Notice</h2>
                 </div>
                 <p className="text-[#F2F0EB]/60 text-[15px] leading-relaxed font-medium">
-                  현재 VoxMesh Studio는 베타 단계로 운영 중입니다. 사용자 피드백을 수렴하여 
+                  현재 Video To Scene는 베타 단계로 운영 중입니다. 사용자 피드백을 수렴하여 
                   <span className="text-[#F2F0EB]"> 크레딧 요금 최적화, 보관 기간 확장, 고성능 엔진 업그레이드</span> 
                   등 더 진보된 운영 정책을 마련하고 있습니다. 여러분의 소중한 의견이 서비스의 기준이 됩니다.
                 </p>

@@ -48,7 +48,7 @@ export default function TopNav() {
           <div className="h-12 w-12 rounded-lg overflow-hidden border border-black/10 bg-white transition-transform group-hover:scale-[1.05]">
             <img
               src={logo}
-              alt="VoxMesh"
+              alt="Video To Scene"
               draggable={false}
               className="h-full w-full object-cover scale-[1.5] origin-center"
             />
@@ -56,7 +56,7 @@ export default function TopNav() {
 
           <div className="hidden sm:block leading-none">
             <div className="font-black tracking-tighter text-black text-[20px] uppercase">
-              VoxMesh
+              Video To Scene
             </div>
             <div className="mt-1 text-[9px] font-bold text-black/30 tracking-[0.2em] uppercase">
               Digital Lab

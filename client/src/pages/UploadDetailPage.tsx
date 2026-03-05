@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 
 type JobProgressView = {
+  jobId: number;
   status: JobStatus;
   stage: string;
   progress: number;
@@ -154,6 +155,10 @@ export default function UploadDetailPage() {
       return;
     }
 
+    // Job 전환 시 이전 job의 진행 상태/뷰어가 남지 않도록 즉시 초기화
+    setViewer(null);
+    setJobProgress(null);
+
     let mounted = true;
     void (async () => {
       try {
@@ -180,60 +185,87 @@ export default function UploadDetailPage() {
     [jobs, selectedJobId]
   );
 
+  const currentProgress = useMemo(() => {
+    if (!jobProgress || selectedJobId == null) return null;
+    if (jobProgress.jobId !== selectedJobId) return null;
+    return jobProgress;
+  }, [jobProgress, selectedJobId]);
+
   const currentStatus = useMemo(() => {
-    if (jobProgress) return jobProgress.status;
+    if (currentProgress) return currentProgress.status;
     if (viewer) return normalizeJobStatus(viewer.status);
     if (selectedJob) return normalizeJobStatus(selectedJob.status);
     return "queued";
-  }, [jobProgress, viewer, selectedJob]);
+  }, [currentProgress, viewer, selectedJob]);
+
+  const syncJobProgress = useCallback(
+    async (jobId: number, isCanceled?: () => boolean) => {
+      const progress = await getSceneJobProgress(sceneId, jobId);
+      if (isCanceled?.()) return;
+
+      const normalizedStatus = normalizeJobStatus(progress.status);
+      const normalizedProgress = normalizeProgress(progress.progress);
+      const nextProgress: JobProgressView = {
+        jobId,
+        status: normalizedStatus,
+        stage: progress.stage ?? "",
+        progress: normalizedProgress,
+        detail: progress.detail ?? "",
+        updatedAt: progress.updatedAt ?? null,
+        metrics: progress.metrics ?? null,
+      };
+
+      setJobProgress(nextProgress);
+      setJobs((prev) =>
+        prev.map((job) => (job.id === jobId ? { ...job, status: normalizedStatus } : job))
+      );
+
+      if (normalizedStatus === "ready" || normalizedStatus === "failed" || normalizedStatus === "canceled") {
+        await fetchViewer(jobId);
+        if (isCanceled?.()) return;
+        await fetchJobs(jobId);
+      }
+    },
+    [sceneId, fetchViewer, fetchJobs]
+  );
+
+  useEffect(() => {
+    if (selectedJobId == null) return undefined;
+
+    let canceled = false;
+    void (async () => {
+      try {
+        await syncJobProgress(selectedJobId, () => canceled);
+      } catch {
+        if (canceled) return;
+      }
+    })();
+
+    return () => {
+      canceled = true;
+    };
+  }, [selectedJobId, syncJobProgress]);
 
   useEffect(() => {
     if (selectedJobId == null) return undefined;
     if (currentStatus !== "queued" && currentStatus !== "processing") return undefined;
 
     let canceled = false;
-    const poll = async () => {
-      try {
-        const progress = await getSceneJobProgress(sceneId, selectedJobId);
-        if (canceled) return;
-
-        const normalizedStatus = normalizeJobStatus(progress.status);
-        const normalizedProgress = normalizeProgress(progress.progress);
-        const nextProgress: JobProgressView = {
-          status: normalizedStatus,
-          stage: progress.stage ?? "",
-          progress: normalizedProgress,
-          detail: progress.detail ?? "",
-          updatedAt: progress.updatedAt ?? null,
-          metrics: progress.metrics ?? null,
-        };
-
-        setJobProgress(nextProgress);
-        setJobs((prev) =>
-          prev.map((job) => (job.id === selectedJobId ? { ...job, status: normalizedStatus } : job))
-        );
-
-        if (normalizedStatus === "ready" || normalizedStatus === "failed" || normalizedStatus === "canceled") {
-          await fetchViewer(selectedJobId);
-          if (!canceled) {
-            await fetchJobs(selectedJobId);
-          }
-        }
-      } catch {
-        if (canceled) return;
-      }
-    };
-
-    void poll();
     const timer = window.setInterval(() => {
-      void poll();
+      void (async () => {
+        try {
+          await syncJobProgress(selectedJobId, () => canceled);
+        } catch {
+          if (canceled) return;
+        }
+      })();
     }, 4000);
 
     return () => {
       canceled = true;
       window.clearInterval(timer);
     };
-  }, [sceneId, selectedJobId, currentStatus, fetchViewer, fetchJobs]);
+  }, [selectedJobId, currentStatus, syncJobProgress]);
 
   const handleCreateJob = async () => {
     if (!sceneId) return;
@@ -265,16 +297,16 @@ export default function UploadDetailPage() {
 
   const isReady = currentStatus === "ready";
   const isProcessing = currentStatus === "processing" || currentStatus === "queued";
-  const progressValue = jobProgress ? normalizeProgress(jobProgress.progress) : 0;
+  const progressValue = currentProgress ? normalizeProgress(currentProgress.progress) : 0;
   const progressPercent = `${(progressValue * 100).toFixed(0)}%`;
   const progressFixed = progressValue.toFixed(2);
   const isProgressStale = useMemo(() => {
-    if (!jobProgress?.updatedAt) return false;
-    const updatedAtMs = Date.parse(jobProgress.updatedAt);
+    if (!currentProgress?.updatedAt) return false;
+    const updatedAtMs = Date.parse(currentProgress.updatedAt);
     if (!Number.isFinite(updatedAtMs)) return false;
-    const isRunning = jobProgress.status === "queued" || jobProgress.status === "processing";
+    const isRunning = currentProgress.status === "queued" || currentProgress.status === "processing";
     return isRunning && Date.now() - updatedAtMs > 10 * 60 * 1000;
-  }, [jobProgress]);
+  }, [currentProgress]);
 
   if (jobsLoading) {
     return (
@@ -356,15 +388,15 @@ export default function UploadDetailPage() {
                 </div>
                 <div className="flex items-center justify-between text-[11px]">
                   <span className="font-black uppercase tracking-[0.14em] text-[#1A3C34]/70">
-                    Stage: {jobProgress?.stage || "PENDING"}
+                    Stage: {currentProgress?.stage || "PENDING"}
                   </span>
                   <span className="text-[#1A3C34]/45 font-bold">
-                    {jobProgress?.updatedAt ? new Date(jobProgress.updatedAt).toLocaleString("ko-KR") : "-"}
+                    {currentProgress?.updatedAt ? new Date(currentProgress.updatedAt).toLocaleString("ko-KR") : "-"}
                   </span>
                 </div>
-                {jobProgress?.detail && (
+                {currentProgress?.detail && (
                   <div className="text-[12px] text-[#1A3C34]/65 font-medium">
-                    {jobProgress.detail}
+                    {currentProgress.detail}
                   </div>
                 )}
                 {isProgressStale && (
@@ -526,11 +558,11 @@ export default function UploadDetailPage() {
                     <div>Range: {viewer.file.acceptRanges ? "enabled" : "disabled"}</div>
                   </div>
                 )}
-                {jobProgress?.metrics && (
+                {currentProgress?.metrics && (
                   <div className="text-[11px] opacity-70 font-medium space-y-1">
-                    <div>imgRequested: {jobProgress.metrics.imgRequested ?? "-"}</div>
-                    <div>frameCount: {jobProgress.metrics.frameCount ?? "-"}</div>
-                    <div>iters: {jobProgress.metrics.iter ?? 0}/{jobProgress.metrics.iters ?? "-"}</div>
+                    <div>imgRequested: {currentProgress.metrics.imgRequested ?? "-"}</div>
+                    <div>frameCount: {currentProgress.metrics.frameCount ?? "-"}</div>
+                    <div>iters: {currentProgress.metrics.iter ?? 0}/{currentProgress.metrics.iters ?? "-"}</div>
                   </div>
                 )}
               </div>
