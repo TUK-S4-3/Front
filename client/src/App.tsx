@@ -48,7 +48,11 @@ function RequireAuth({ children }: { children: ReactNode }) {
   }, []);
 
   if (checking) {
-    return null;
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#090B0E] text-white/60 text-[11px] font-bold uppercase tracking-[0.2em]">
+        Checking Session...
+      </div>
+    );
   }
 
   if (!authed) {

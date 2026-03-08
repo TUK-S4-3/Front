@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { AlertCircle, ArrowLeft, HardDrive, Loader2, RefreshCw, Sparkles } from "lucide-react";
+import { AlertCircle, ArrowLeft, HardDrive, Loader2, RefreshCw } from "lucide-react";
 import type { JobStatus, JobViewerResponse } from "../api/types";
 import { getJobViewer } from "../api/videos";
-import Layout from "../components/Layout";
-import PlyCanvasViewer from "../components/PlyCanvasViewer";
+import GaussianSplatViewer from "../components/GaussianSplatViewer";
 
 function normalizeJobStatus(status: string | null | undefined): JobStatus {
   const normalized = String(status ?? "").trim().toLowerCase();
@@ -97,6 +97,10 @@ export default function JobViewerPage() {
     [viewer, sceneIdText]
   );
   const isReady = currentStatus === "ready" && !!viewer?.resultUrl;
+  const fileContentLength =
+    viewer?.file && typeof viewer.file.contentLength === "number" ? viewer.file.contentLength : null;
+  const fileAcceptRanges =
+    viewer?.file && typeof viewer.file.acceptRanges === "boolean" ? viewer.file.acceptRanges : null;
 
   useEffect(() => {
     if (!viewer) return undefined;
@@ -111,113 +115,77 @@ export default function JobViewerPage() {
     };
   }, [viewer, currentStatus, fetchViewer]);
 
-  return (
-    <Layout>
-      <div className="bg-[#F2F0EB] min-h-screen pt-28 pb-20 px-6 relative text-[#2D2D2D]">
-        <div className="max-w-6xl mx-auto space-y-12 relative z-10">
-          <div className="flex items-center justify-between">
-            <Link
-              to={`/uploads/${encodeURIComponent(sceneIdText)}`}
-              className="group flex items-center gap-3 text-[#1A3C34]/40 hover:text-[#1A3C34] transition-colors font-bold text-[11px] uppercase tracking-widest"
-            >
-              <ArrowLeft size={16} className="group-hover:-translate-x-1 transition-transform" />
-              Return to Scene
-            </Link>
-
-            <button
-              onClick={() => void fetchViewer()}
-              className="text-[#1A3C34]/40 hover:text-[#D95F39] transition-colors"
-              aria-label="viewer refresh"
-            >
-              <RefreshCw size={18} />
-            </button>
-          </div>
-
-          <div className="flex flex-col md:flex-row md:items-end justify-between gap-8 border-b border-[#1A3C34]/10 pb-12">
-            <div className="space-y-4">
-              <div className="inline-flex items-center gap-2 text-[#D95F39] text-[11px] font-black uppercase tracking-[0.3em]">
-                <Sparkles size={14} /> Job Viewer
-              </div>
-              <h1 className="text-5xl md:text-7xl font-serif italic tracking-tight">
-                3D <span className="font-sans not-italic font-black text-[#1A3C34] uppercase">Result</span>
-              </h1>
-              <div className="flex items-center gap-3">
-                <span className="text-[10px] font-bold bg-[#1A3C34] text-[#F2F0EB] px-3 py-1 uppercase tracking-tighter">
-                  Scene ID: {sceneIdText}
-                </span>
-                <span className="text-[10px] font-bold text-[#1A3C34]/40 uppercase tracking-widest border-l border-[#1A3C34]/20 pl-3">
-                  Job {jobIdText}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {err && (
-            <div className="bg-[#D95F39]/10 border border-[#D95F39]/20 p-6 flex items-center gap-4 text-[#D95F39] text-xs font-black uppercase tracking-widest">
-              <AlertCircle size={20} /> {err}
-            </div>
-          )}
-
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
-            <div className="lg:col-span-8 space-y-8">
-              <div className="relative aspect-video bg-white border border-[#1A3C34]/10 overflow-hidden">
-                {loading ? (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 text-center p-12">
-                    <Loader2 className="h-10 w-10 text-[#1A3C34]/20 animate-spin" />
-                    <p className="text-[12px] font-bold uppercase tracking-[0.3em] text-[#1A3C34]/30">
-                      Loading Viewer Data...
-                    </p>
-                  </div>
-                ) : isReady && sceneMatched && viewer?.resultUrl ? (
-                  <PlyCanvasViewer key={viewer.jobId} url={viewer.resultUrl} />
-                ) : (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-12">
-                    <div className="mx-auto h-20 w-20 bg-[#F2F0EB] flex items-center justify-center text-[#1A3C34] border border-[#1A3C34]/10">
-                      <HardDrive size={34} className={currentStatus === "processing" || currentStatus === "queued" ? "animate-pulse" : ""} />
-                    </div>
-                    <h3 className="mt-6 text-3xl font-serif italic text-[#1A3C34]">
-                      {sceneMatched ? statusLabel(currentStatus) : "Scene Mismatch"}
-                    </h3>
-                    <p className="mt-2 text-[#1A3C34]/50 text-[13px] font-medium max-w-xs mx-auto leading-relaxed">
-                      {!sceneMatched
-                        ? "요청한 Scene 경로와 Viewer 응답의 sceneId가 다릅니다."
-                        : currentStatus === "processing" || currentStatus === "queued"
-                        ? "선택한 Job의 결과를 생성 중입니다."
-                        : currentStatus === "failed"
-                        ? "Job 처리에 실패했습니다. Scene 페이지에서 새 Job을 생성해 주세요."
-                        : currentStatus === "canceled"
-                        ? "해당 Job은 취소되었습니다."
-                        : "뷰어에 표시할 결과 파일이 없습니다."}
-                    </p>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="lg:col-span-4">
-              <div className="bg-[#1A3C34] p-10 text-[#F2F0EB] space-y-4">
-                <div className="text-[10px] font-black uppercase tracking-[0.2em] text-[#D95F39]">
-                  Viewer Status
-                </div>
-                <div className="text-[13px] leading-relaxed opacity-80 font-medium">
-                  Current status: <span className="font-bold">{statusLabel(currentStatus)}</span>
-                </div>
-                <div className="text-[11px] opacity-70 font-medium space-y-1">
-                  <div>Scene match: {sceneMatched ? "yes" : "no"}</div>
-                  <div>Result URL: {viewer?.resultUrl ? "available" : "null"}</div>
-                </div>
-                {viewer?.file && (
-                  <div className="text-[11px] opacity-70 font-medium space-y-1">
-                    <div>Size: {viewer.file.contentLength.toLocaleString()} bytes</div>
-                    <div>ETag: {viewer.file.etag}</div>
-                    <div>Range: {viewer.file.acceptRanges ? "enabled" : "disabled"}</div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
+  const viewerContent = (
+    <div className="fixed inset-0 bg-[#090B0E] text-white overflow-hidden z-[9999]">
+      {loading ? (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 text-center p-12">
+          <Loader2 className="h-10 w-10 text-white/40 animate-spin" />
+          <p className="text-[12px] font-bold uppercase tracking-[0.3em] text-white/60">Loading Viewer Data...</p>
         </div>
+      ) : isReady && sceneMatched && viewer?.resultUrl ? (
+        <GaussianSplatViewer key={viewer.jobId} url={viewer.resultUrl} />
+      ) : (
+        <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-12">
+          <div className="mx-auto h-20 w-20 bg-white/10 flex items-center justify-center text-white border border-white/20 rounded-full">
+            <HardDrive size={34} className={currentStatus === "processing" || currentStatus === "queued" ? "animate-pulse" : ""} />
+          </div>
+          <h3 className="mt-6 text-3xl font-serif italic">{sceneMatched ? statusLabel(currentStatus) : "Scene Mismatch"}</h3>
+          <p className="mt-2 text-white/65 text-[13px] font-medium max-w-sm mx-auto leading-relaxed">
+            {!sceneMatched
+              ? "요청한 Scene 경로와 Viewer 응답의 sceneId가 다릅니다."
+              : currentStatus === "processing" || currentStatus === "queued"
+              ? "선택한 Job의 결과를 생성 중입니다."
+              : currentStatus === "failed"
+              ? "Job 처리에 실패했습니다. Scene 페이지에서 새 Job을 생성해 주세요."
+              : currentStatus === "canceled"
+              ? "해당 Job은 취소되었습니다."
+              : "뷰어에 표시할 결과 파일이 없습니다."}
+          </p>
+        </div>
+      )}
+
+      <div className="pointer-events-none absolute inset-x-0 top-0 p-4 md:p-6 space-y-3">
+        <div className="pointer-events-auto flex items-center justify-between gap-4 bg-black/45 border border-white/20 px-4 py-3 backdrop-blur-sm rounded-md">
+          <Link
+            to={`/uploads/${encodeURIComponent(sceneIdText)}`}
+            className="group flex items-center gap-2 text-white/80 hover:text-white transition-colors font-bold text-[11px] uppercase tracking-widest"
+          >
+            <ArrowLeft size={16} className="group-hover:-translate-x-1 transition-transform" />
+            Return to Scene
+          </Link>
+
+          <div className="hidden md:flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.18em]">
+            <span className="px-2 py-1 bg-white/10 border border-white/20">Scene {sceneIdText}</span>
+            <span className="px-2 py-1 bg-white/10 border border-white/20">Job {jobIdText}</span>
+            <span className="px-2 py-1 bg-[#D95F39]/20 border border-[#D95F39]/40 text-[#FFB8A4]">
+              {statusLabel(currentStatus)}
+            </span>
+          </div>
+
+          <button
+            onClick={() => void fetchViewer()}
+            className="text-white/70 hover:text-[#FFB8A4] transition-colors"
+            aria-label="viewer refresh"
+          >
+            <RefreshCw size={18} />
+          </button>
+        </div>
+
+        {viewer?.file && (
+          <div className="text-[10px] font-medium tracking-wide text-white/60 px-3 py-2 bg-black/35 border border-white/15 rounded-md w-fit ml-auto">
+            Size {fileContentLength !== null ? fileContentLength.toLocaleString() : "-"} bytes | Range{" "}
+            {fileAcceptRanges === null ? "-" : fileAcceptRanges ? "enabled" : "disabled"}
+          </div>
+        )}
+
+        {err && (
+          <div className="pointer-events-auto bg-[#D95F39]/15 border border-[#D95F39]/40 px-4 py-3 flex items-center gap-3 text-[#FFB8A4] text-xs font-bold uppercase tracking-widest rounded-md">
+            <AlertCircle size={18} /> {err}
+          </div>
+        )}
       </div>
-    </Layout>
+    </div>
   );
+
+  return createPortal(viewerContent, document.body);
 }
