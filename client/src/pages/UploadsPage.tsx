@@ -50,29 +50,23 @@ function mapSceneFetchError(error: unknown) {
   return "내 업로드 목록을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.";
 }
 
-function normalizeSceneStatus(status: string) {
-  const normalized = status.toLowerCase();
-  if (normalized === "completed" || normalized === "succeeded" || normalized === "ready") {
-    return "ready";
-  }
-  if (normalized === "processing" || normalized === "running") {
-    return "processing";
-  }
-  if (normalized === "failed") {
-    return "failed";
-  }
-  if (normalized === "canceled" || normalized === "cancelled") {
-    return "canceled";
-  }
-  return "queued";
-}
-
 function stateMessage(state: UploadFlowState, progress: number, sceneId: string) {
   if (state === "presigning") return "업로드 준비 중…";
   if (state === "uploading") return `S3 업로드 중… ${progress}%`;
   if (state === "completing") return "업로드 완료 처리 중…";
   if (state === "success" && sceneId) return `업로드 완료 (sceneId: ${sceneId})`;
   return "";
+}
+
+function inputVideoStateLabel(scene: VideoScene) {
+  return scene.inputVideoKey ? "Video Linked" : "Pending Upload";
+}
+
+function formatCreatedAt(createdAt: string | undefined) {
+  if (!createdAt) return "-";
+  const time = Date.parse(createdAt);
+  if (!Number.isFinite(time)) return "-";
+  return new Date(time).toLocaleString("ko-KR");
 }
 
 export default function UploadsPage() {
@@ -297,9 +291,9 @@ export default function UploadsPage() {
                 <table className="w-full text-left">
                   <thead className="bg-[#1A3C34] text-[10px] font-bold text-[#F2F0EB]/50 uppercase tracking-[0.2em]">
                     <tr>
-                      <th className="px-8 py-5">Asset Identity</th>
-                      <th className="px-4 py-5 text-center">Status</th>
-                      <th className="px-8 py-5"></th>
+                      <th className="px-8 py-5">Scene</th>
+                      <th className="px-4 py-5 text-center">Input Video</th>
+                      <th className="px-8 py-5 text-right">Created</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#1A3C34]/5">
@@ -333,15 +327,22 @@ export default function UploadsPage() {
                                 <div className="text-[14px] font-black uppercase tracking-tighter text-[#1A3C34]">
                                   {scene.title?.trim() || `Scene ${scene.id}`}
                                 </div>
-                                <div className="text-[10px] opacity-30 font-bold uppercase">Stored Geometry</div>
+                                <div className="text-[10px] opacity-30 font-bold uppercase">Input Video Archive</div>
                               </div>
                             </div>
                           </td>
                           <td className="px-4 py-6 text-center">
-                             <StatusTag status={scene.status} />
+                            <span className="inline-flex px-4 py-1 text-[9px] font-black uppercase tracking-[0.15em] bg-[#F2F0EB] text-[#1A3C34]/55 border border-[#1A3C34]/10">
+                              {inputVideoStateLabel(scene)}
+                            </span>
                           </td>
-                          <td className="px-8 py-6 text-right text-[10px] font-bold uppercase tracking-wider text-[#1A3C34]/35">
-                            sceneId {scene.id}
+                          <td className="px-8 py-6 text-right">
+                            <div className="text-[10px] font-bold uppercase tracking-wider text-[#1A3C34]/35">
+                              sceneId {scene.id}
+                            </div>
+                            <div className="mt-2 text-[10px] font-bold text-[#1A3C34]/45">
+                              {formatCreatedAt(scene.createdAt)}
+                            </div>
                           </td>
                         </tr>
                       ))
@@ -378,21 +379,5 @@ export default function UploadsPage() {
         </div>
       </div>
     </Layout>
-  );
-}
-
-function StatusTag({ status }: { status: string }) {
-  const config: Record<string, { label: string, color: string }> = {
-    queued: { label: "Queued", color: "bg-[#F2F0EB] text-[#1A3C34]/40" },
-    processing: { label: "Synthesizing", color: "border border-[#1A3C34] text-[#1A3C34] animate-pulse" },
-    ready: { label: "Archived", color: "bg-[#1A3C34] text-[#F2F0EB]" },
-    failed: { label: "System Error", color: "bg-[#D95F39] text-white" },
-    canceled: { label: "Canceled", color: "border border-[#D95F39] text-[#D95F39]" },
-  };
-  const c = config[normalizeSceneStatus(status)] || config.queued;
-  return (
-    <span className={`px-4 py-1 text-[9px] font-black uppercase tracking-[0.15em] ${c.color}`}>
-      {c.label}
-    </span>
   );
 }

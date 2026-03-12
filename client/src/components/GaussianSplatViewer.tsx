@@ -1,9 +1,15 @@
-import { useEffect, useRef, useState } from "react";
-import { AlertCircle, RotateCcw } from "lucide-react";
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { AlertCircle } from "lucide-react";
 import * as GaussianSplats3D from "@mkkellogg/gaussian-splats-3d";
+import * as THREE from "three";
 
 type GaussianSplatViewerProps = {
   url: string;
+  showControlsHint?: boolean;
+};
+
+export type GaussianSplatViewerHandle = {
+  captureJpegBlob: (quality?: number) => Promise<Blob>;
 };
 
 type AbortableTask<T = unknown> = {
@@ -17,6 +23,7 @@ type ViewerInstance = {
   start: () => void;
   stop?: () => void;
   dispose: () => Promise<void>;
+  forceRenderNextFrame?: () => void;
   camera?: {
     up?: { x: number; y: number; z: number };
     position?: { x: number; y: number; z: number };
@@ -34,6 +41,12 @@ type ViewerInstance = {
     target?: { x: number; y: number; z: number };
     update?: () => void;
   };
+  renderer?: {
+    domElement?: HTMLCanvasElement;
+    setSize?: (width: number, height: number) => void;
+    setPixelRatio?: (pixelRatio: number) => void;
+    getContext?: () => WebGLRenderingContext | WebGL2RenderingContext;
+  };
 };
 
 type ViewerCtor = new (options?: Record<string, unknown>) => ViewerInstance;
@@ -49,12 +62,51 @@ type GaussianSplatsModule = {
   };
 };
 
+type ThreeRenderer = {
+  domElement: HTMLCanvasElement;
+  autoClear: boolean;
+  setPixelRatio: (pixelRatio: number) => void;
+  setClearColor: (color: unknown, alpha?: number) => void;
+  setSize: (width: number, height: number, updateStyle?: boolean) => void;
+  getContext: () => WebGLRenderingContext | WebGL2RenderingContext;
+  dispose: () => void;
+};
+
 const GS = GaussianSplats3D as unknown as GaussianSplatsModule;
 const SCENE_ROTATION_FIX = [1, 0, 0, 0] as [number, number, number, number]; // 180deg around X
 
-function createViewerOptions(root: HTMLDivElement) {
+function getRenderDimensions(root: HTMLDivElement) {
+  const rect = root.getBoundingClientRect();
+  return {
+    width: Math.max(1, Math.floor(rect.width || root.clientWidth || 1)),
+    height: Math.max(1, Math.floor(rect.height || root.clientHeight || 1)),
+  };
+}
+
+function createExternalRenderer(root: HTMLDivElement) {
+  const renderer = new (THREE as any).WebGLRenderer({
+    antialias: false,
+    precision: "highp",
+    alpha: true,
+    preserveDrawingBuffer: true,
+  }) as ThreeRenderer;
+  const { width, height } = getRenderDimensions(root);
+  renderer.setPixelRatio(window.devicePixelRatio || 1);
+  renderer.autoClear = true;
+  renderer.setClearColor(new (THREE as any).Color(0x000000), 0.0);
+  renderer.setSize(width, height, false);
+  renderer.domElement.style.width = "100%";
+  renderer.domElement.style.height = "100%";
+  renderer.domElement.style.display = "block";
+  renderer.domElement.style.touchAction = "none";
+  root.appendChild(renderer.domElement);
+  return renderer;
+}
+
+function createViewerOptions(root: HTMLDivElement, renderer: ThreeRenderer) {
   return {
     rootElement: root,
+    renderer,
     useBuiltInControls: true,
     sharedMemoryForWorkers: false,
     gpuAcceleratedSort: false,
@@ -143,6 +195,18 @@ function initialCameraLookAt() {
   return [0, 0, 0] as [number, number, number];
 }
 
+function canvasToBlob(canvas: HTMLCanvasElement, quality: number) {
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        reject(new Error("THUMBNAIL_CAPTURE_EMPTY"));
+        return;
+      }
+      resolve(blob);
+    }, "image/jpeg", quality);
+  });
+}
+
 function shouldIgnoreHotkeyTarget(target: EventTarget | null) {
   const element = target as HTMLElement | null;
   if (!element) return false;
@@ -210,12 +274,40 @@ function applyCameraRoll(viewer: ViewerInstance, deltaRadians: number) {
   anyViewer.forceRenderNextFrame?.();
 }
 
-export default function GaussianSplatViewer({ url }: GaussianSplatViewerProps) {
+const GaussianSplatViewer = forwardRef<GaussianSplatViewerHandle, GaussianSplatViewerProps>(function GaussianSplatViewer(
+  { url, showControlsHint = true },
+  ref
+) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const viewerRef = useRef<ViewerInstance | null>(null);
   const loadTaskRef = useRef<AbortableTask<unknown> | null>(null);
+  const rendererRef = useRef<ThreeRenderer | null>(null);
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
+  useImperativeHandle(ref, () => ({
+    async captureJpegBlob(quality = 0.92) {
+      const viewer = viewerRef.current;
+      const renderer = rendererRef.current;
+      const canvas = renderer?.domElement;
+      if (!viewer || !renderer || !canvas) {
+        throw new Error("THUMBNAIL_CANVAS_NOT_FOUND");
+      }
+
+      viewer.forceRenderNextFrame?.();
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+
+      const context = renderer.getContext();
+      context.finish?.();
+
+      if (canvas.width < 1 || canvas.height < 1) {
+        throw new Error("THUMBNAIL_CANVAS_NOT_READY");
+      }
+
+      return canvasToBlob(canvas, quality);
+    },
+  }));
 
   useEffect(() => {
     let disposed = false;
@@ -240,15 +332,35 @@ export default function GaussianSplatViewer({ url }: GaussianSplatViewerProps) {
     }
 
     root.replaceChildren();
+    const renderer = createExternalRenderer(root);
+    rendererRef.current = renderer;
+
+    const resizeObserver = new ResizeObserver(() => {
+      const nextRenderer = rendererRef.current;
+      const nextViewer = viewerRef.current;
+      const currentRoot = rootRef.current;
+      if (!nextRenderer || !currentRoot) return;
+      const { width, height } = getRenderDimensions(currentRoot);
+      nextRenderer.setPixelRatio(window.devicePixelRatio || 1);
+      nextRenderer.setSize(width, height, false);
+      nextViewer?.forceRenderNextFrame?.();
+    });
+    resizeObserver.observe(root);
+    resizeObserverRef.current = resizeObserver;
+
     let viewer: ViewerInstance;
     try {
-      viewer = new GS.Viewer(createViewerOptions(root));
+      viewer = new GS.Viewer(createViewerOptions(root, renderer));
     } catch (caught) {
       if (!disposed) {
         console.error("[GaussianSplatViewer] viewer init error", caught);
         setError(mapLoadError(caught));
         setLoading(false);
       }
+      resizeObserver.disconnect();
+      resizeObserverRef.current = null;
+      renderer.dispose();
+      rendererRef.current = null;
       return () => {
         disposed = true;
       };
@@ -286,6 +398,9 @@ export default function GaussianSplatViewer({ url }: GaussianSplatViewerProps) {
       if (loadTaskRef.current === loadTask) {
         loadTaskRef.current = null;
       }
+      const resizeObserver = resizeObserverRef.current;
+      resizeObserverRef.current = null;
+      resizeObserver?.disconnect();
       try {
         loadTask.abort?.("Scene disposed");
       } catch {
@@ -299,9 +414,25 @@ export default function GaussianSplatViewer({ url }: GaussianSplatViewerProps) {
       } catch {
         // noop
       }
-      void current.dispose().catch(() => {
-        // noop
-      });
+      void current
+        .dispose()
+        .catch(() => {
+          // noop
+        })
+        .finally(() => {
+          if (rendererRef.current === renderer) {
+            rendererRef.current = null;
+          }
+          try {
+            renderer.dispose();
+          } catch {
+            // noop
+          }
+          const activeRoot = rootRef.current;
+          if (activeRoot && renderer.domElement.parentElement === activeRoot) {
+            activeRoot.removeChild(renderer.domElement);
+          }
+        });
     };
   }, [url]);
 
@@ -327,74 +458,6 @@ export default function GaussianSplatViewer({ url }: GaussianSplatViewerProps) {
     };
   }, []);
 
-  const handleResetView = () => {
-    const viewer = viewerRef.current;
-    const root = rootRef.current;
-    if (!viewer || !root) return;
-
-    const activeLoadTask = loadTaskRef.current;
-    loadTaskRef.current = null;
-    try {
-      activeLoadTask?.abort?.("Scene reset");
-    } catch {
-      // noop
-    }
-
-    try {
-      viewer.stop?.();
-    } catch {
-      // noop
-    }
-
-    void viewer
-      .dispose()
-      .catch(() => {
-        // noop
-      })
-      .finally(() => {
-        viewerRef.current = null;
-        setLoading(true);
-        setError("");
-        root.replaceChildren();
-
-        let nextViewer: ViewerInstance;
-        try {
-          nextViewer = new GS.Viewer(createViewerOptions(root));
-        } catch (caught) {
-          console.error("[GaussianSplatViewer] viewer re-init error", caught);
-          setError(mapLoadError(caught));
-          setLoading(false);
-          return;
-        }
-
-        viewerRef.current = nextViewer;
-        const reloadTask = nextViewer.addSplatScene(String(url).trim(), {
-          format: inferSceneFormat(String(url).trim()),
-          progressiveLoad: true,
-          showLoadingUI: false,
-          splatAlphaRemovalThreshold: 5,
-          rotation: SCENE_ROTATION_FIX,
-        });
-        loadTaskRef.current = reloadTask;
-
-        reloadTask
-          .then(() => {
-            if (loadTaskRef.current !== reloadTask) return;
-            relaxOrbitLimits(nextViewer);
-            nextViewer.start();
-            setLoading(false);
-          })
-          .catch((caught) => {
-            if (loadTaskRef.current !== reloadTask) return;
-            if (!isAbortLikeError(caught)) {
-              console.error("[GaussianSplatViewer] reload error", caught);
-              setError(mapLoadError(caught));
-            }
-            setLoading(false);
-          });
-      });
-  };
-
   return (
     <div
       className="relative w-full h-full overflow-hidden bg-[#090B0E]"
@@ -412,17 +475,11 @@ export default function GaussianSplatViewer({ url }: GaussianSplatViewerProps) {
       />
 
       <div className="pointer-events-none absolute left-4 top-20 md:top-24 flex items-start gap-2">
-        <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-white/80 bg-black/45 px-3 py-2 border border-white/20 backdrop-blur-sm">
-          좌클릭 드래그: 회전 / 우클릭+드래그: 이동 / 휠: 줌 / Q,E: 화면 기울기
-        </div>
-        <button
-          type="button"
-          onClick={handleResetView}
-          className="pointer-events-auto inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-[0.18em] px-3 py-2 bg-black/45 border border-white/25 text-white hover:border-[#D95F39] hover:text-[#D95F39] backdrop-blur-sm"
-        >
-          <RotateCcw size={12} />
-          Reset
-        </button>
+        {showControlsHint && (
+          <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-white/80 bg-black/45 px-3 py-2 border border-white/20 backdrop-blur-sm">
+            좌클릭 드래그: 회전 / 우클릭+드래그: 이동 / 휠: 줌 / Q,E: 화면 기울기
+          </div>
+        )}
       </div>
 
       {loading && (
@@ -462,4 +519,6 @@ export default function GaussianSplatViewer({ url }: GaussianSplatViewerProps) {
       </div>
     </div>
   );
-}
+});
+
+export default GaussianSplatViewer;

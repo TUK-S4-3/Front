@@ -82,6 +82,49 @@ function buildPublicVideoUrl(baseUrl: string, inputVideoKey: string | null) {
   return `${normalizedBaseUrl}/${encodeS3KeyBySegment(inputVideoKey)}`;
 }
 
+function isViewerReadyJob(job: SceneJob | null | undefined) {
+  if (!job) return false;
+  if (typeof job.viewerReady === "boolean") {
+    return job.viewerReady;
+  }
+  const normalized = normalizeJobStatus(job.status);
+  if (normalized !== "ready") return false;
+  if (typeof job.resultExists === "boolean") {
+    return job.resultExists;
+  }
+  return Boolean(job.gaussianSplatKey);
+}
+
+function isPostableJob(job: SceneJob | null | undefined) {
+  if (!job) return false;
+  if (typeof job.postable === "boolean") {
+    return job.postable;
+  }
+  return isViewerReadyJob(job) && !job.alreadyPosted;
+}
+
+function selectDefaultJobId(jobs: SceneJob[]) {
+  const latestSuccessfulJob = jobs.find((job) => isViewerReadyJob(job) || normalizeJobStatus(job.status) === "ready");
+  return latestSuccessfulJob?.id ?? jobs[0]?.id ?? null;
+}
+
+function formatOptionalNumber(value: number | null | undefined) {
+  if (!Number.isFinite(value)) return "-";
+  return Number(value).toLocaleString("ko-KR");
+}
+
+function formatDateLabel(value: string | null | undefined) {
+  if (!value) return "-";
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) return "-";
+  return new Date(parsed).toLocaleString("ko-KR");
+}
+
+function formatParameterValue(value: number | null | undefined) {
+  if (!Number.isFinite(value)) return "미제공";
+  return Number(value).toLocaleString("ko-KR");
+}
+
 export default function UploadDetailPage() {
   const nav = useNavigate();
   const { sceneId } = useParams();
@@ -122,7 +165,7 @@ export default function UploadDetailPage() {
       if (target != null && nextJobs.some((job) => job.id === target)) {
         return target;
       }
-      return nextJobs.length > 0 ? nextJobs[0].id : null;
+      return selectDefaultJobId(nextJobs);
     });
   }, [sceneIdText]);
 
@@ -179,6 +222,7 @@ export default function UploadDetailPage() {
   }, [jobProgress, selectedJobId]);
 
   const currentStatus = useMemo(() => {
+    if (selectedJob && isViewerReadyJob(selectedJob)) return "ready";
     if (currentProgress) return currentProgress.status;
     if (selectedJob) return normalizeJobStatus(selectedJob.status);
     return "queued";
@@ -284,7 +328,9 @@ export default function UploadDetailPage() {
     return `/uploads/${encodeURIComponent(sceneIdText)}/jobs/${encodeURIComponent(String(selectedJobId))}/viewer`;
   }, [sceneIdText, selectedJobId]);
 
-  const canOpenViewer = selectedJobId != null && currentStatus === "ready";
+  const selectedViewerReady = useMemo(() => isViewerReadyJob(selectedJob), [selectedJob]);
+  const selectedPostable = useMemo(() => isPostableJob(selectedJob), [selectedJob]);
+  const canOpenViewer = selectedJobId != null && selectedViewerReady;
   const progressValue = currentProgress ? normalizeProgress(currentProgress.progress) : 0;
   const progressPercent = `${(progressValue * 100).toFixed(0)}%`;
   const progressFixed = progressValue.toFixed(2);
@@ -418,6 +464,28 @@ export default function UploadDetailPage() {
                 )}
               </div>
 
+              <div className="bg-white border border-[#1A3C34]/10 p-10 space-y-6">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-[12px] font-black uppercase tracking-[0.3em] text-[#1A3C34]/30">
+                    Selected Job Parameters
+                  </h3>
+                  <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#1A3C34]/50">
+                    Job {selectedJobId ?? "-"}
+                  </div>
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                  <ParameterCard label="Pipeline" value={selectedJob?.pipeline ?? "3dgs"} />
+                  <ParameterCard label="Image Count" value={formatParameterValue(selectedJob?.imageCount)} />
+                  <ParameterCard label="Overlap" value={formatParameterValue(selectedJob?.overlap)} />
+                  <ParameterCard label="Iteration" value={formatParameterValue(selectedJob?.iteration)} />
+                </div>
+
+                <p className="text-[12px] font-medium text-[#1A3C34]/55">
+                  선택한 JOB 생성 시 사용된 파라미터입니다. 값이 비어 있으면 현재 목록 API에서 해당 필드가 제공되지 않은 상태입니다.
+                </p>
+              </div>
+
             </div>
 
             <div className="lg:col-span-4 space-y-8">
@@ -518,6 +586,28 @@ export default function UploadDetailPage() {
                           <div className="mt-2 text-[10px] text-[#1A3C34]/45 font-bold uppercase tracking-[0.16em]">
                             {new Date(job.createdAt).toLocaleString("ko-KR")}
                           </div>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {job.pipeline && (
+                              <span className="px-2 py-1 text-[9px] font-black uppercase tracking-[0.14em] bg-[#F2F0EB] text-[#1A3C34]/55">
+                                {job.pipeline}
+                              </span>
+                            )}
+                            {isViewerReadyJob(job) && (
+                              <span className="px-2 py-1 text-[9px] font-black uppercase tracking-[0.14em] bg-[#1A3C34] text-[#F2F0EB]">
+                                Viewer Ready
+                              </span>
+                            )}
+                            {isPostableJob(job) && (
+                              <span className="px-2 py-1 text-[9px] font-black uppercase tracking-[0.14em] bg-[#D95F39] text-white">
+                                Postable
+                              </span>
+                            )}
+                            {job.alreadyPosted && (
+                              <span className="px-2 py-1 text-[9px] font-black uppercase tracking-[0.14em] border border-[#D95F39] text-[#D95F39]">
+                                Posted
+                              </span>
+                            )}
+                          </div>
                         </button>
                       );
                     })
@@ -533,21 +623,32 @@ export default function UploadDetailPage() {
                   disabled={!canOpenViewer}
                   className="w-full h-12 border border-[#1A3C34] text-[#1A3C34] text-[11px] font-black uppercase tracking-[0.2em] hover:bg-[#1A3C34] hover:text-[#F2F0EB] transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-[#1A3C34]"
                 >
-                  {canOpenViewer ? "Open 3D Viewer" : "Viewer Available When Ready"}
+                  {canOpenViewer ? "Open 3D Viewer" : "Viewer Available When Viewer Ready"}
                 </button>
               </div>
 
               <div className="bg-[#1A3C34] p-10 text-[#F2F0EB] space-y-6">
                 <div className="flex items-center gap-3 text-[#D95F39]">
                   <CheckCircle2 size={18} />
-                  <span className="text-[10px] font-black uppercase tracking-[0.2em]">Job Status</span>
+                  <span className="text-[10px] font-black uppercase tracking-[0.2em]">Job Snapshot</span>
                 </div>
                 <p className="text-[13px] leading-relaxed opacity-70 font-medium">
                   Current status: <span className="text-[#F2F0EB] font-bold">{statusLabel(currentStatus)}</span>
                 </p>
                 <div className="text-[11px] opacity-70 font-medium space-y-1">
                   <div>Job ID: {selectedJobId ?? "-"}</div>
+                  <div>Pipeline: {selectedJob?.pipeline ?? "3dgs"}</div>
+                  <div>Viewer Ready: {selectedViewerReady ? "yes" : "no"}</div>
+                  <div>Postable: {selectedPostable ? "yes" : "no"}</div>
+                  <div>Already Posted: {selectedJob?.alreadyPosted ? "yes" : "no"}</div>
                   <div>Result Exists: {selectedJob ? (selectedJob.resultExists ? "yes" : "no") : "-"}</div>
+                  <div>Created At: {formatDateLabel(selectedJob?.createdAt)}</div>
+                  <div>Ended At: {formatDateLabel(selectedJob?.endedAt ?? selectedJob?.finishedAt)}</div>
+                </div>
+                <div className="text-[11px] opacity-70 font-medium space-y-1">
+                  <div>imageCount: {formatOptionalNumber(selectedJob?.imageCount)}</div>
+                  <div>overlap: {formatOptionalNumber(selectedJob?.overlap)}</div>
+                  <div>iteration: {formatOptionalNumber(selectedJob?.iteration)}</div>
                 </div>
                 {currentProgress?.metrics && (
                   <div className="text-[11px] opacity-70 font-medium space-y-1">
@@ -556,6 +657,10 @@ export default function UploadDetailPage() {
                     <div>iters: {currentProgress.metrics.iter ?? 0}/{currentProgress.metrics.iters ?? "-"}</div>
                   </div>
                 )}
+                <p className="text-[11px] opacity-60 font-medium leading-relaxed">
+                  게시 기준은 선택된 job의 <span className="font-bold text-[#F2F0EB]">postable</span> 값입니다.
+                  viewer 진입 기준은 <span className="font-bold text-[#F2F0EB]">viewerReady</span> 값을 우선 사용합니다.
+                </p>
               </div>
             </div>
           </div>
@@ -575,4 +680,13 @@ function StatusChip({ status }: { status: JobStatus }) {
   };
   const item = config[status] ?? config.queued;
   return <span className={`px-3 py-1 text-[9px] font-black uppercase tracking-[0.14em] ${item.className}`}>{item.label}</span>;
+}
+
+function ParameterCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="border border-[#1A3C34]/10 bg-[#F2F0EB]/35 p-4">
+      <div className="text-[10px] font-black uppercase tracking-[0.18em] text-[#1A3C34]/40">{label}</div>
+      <div className="mt-2 text-2xl font-black tracking-tight text-[#1A3C34]">{value}</div>
+    </div>
+  );
 }

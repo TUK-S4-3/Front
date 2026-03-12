@@ -1,4 +1,4 @@
-import { Routes, Route, useLocation, Navigate } from "react-router-dom";
+import { Routes, Route, useLocation, Navigate, useParams } from "react-router-dom";
 import { useEffect, useState, type ReactNode } from "react";
 import LoginPage from "./pages/LoginPage";
 import SignupPage from "./pages/SignupPage";
@@ -9,14 +9,15 @@ import AdminUploadsPage from "./pages/AdminUploadsPage";
 import { me } from "./api/auth";
 import HomePage from "./pages/HomePage";
 import ShowcasePage from "./pages/ShowcasePage";
+import ShowcaseViewerPage from "./pages/ShowcaseViewerPage";
 import ProcessPage from "./pages/ProcessPage";
 import ProductPage from "./pages/ProductPage";
 import NotFoundPage from "./pages/NotFoundPage";
-import ShowcaseDetailPage from "./pages/ShowcaseDetailPage";
 import HelpCenterPage from "./pages/HelpCenterPage";
 import PartnershipsPage from "./pages/PartnershipsPage";
 import PrivacyPolicyPage from "./pages/PrivacyPolicyPage";
 import TermsPage from "./pages/TermsPage";
+import ProfilePage from "./pages/ProfilePage";
 
 
 
@@ -59,6 +60,14 @@ function RequireAuth({ children }: { children: ReactNode }) {
     return <Navigate to="/login" replace state={{ from: loc.pathname }} />;
   }
   return <>{children}</>;
+}
+
+function ShowcaseLegacyRedirect() {
+  const { id } = useParams();
+  if (!id) {
+    return <Navigate to="/showcase" replace />;
+  }
+  return <Navigate to={`/showcase/${encodeURIComponent(id)}/viewer`} replace />;
 }
 
 
@@ -104,11 +113,20 @@ export default function App() {
           </RequireAuth>
         }
       />
+      <Route
+        path="/profile"
+        element={
+          <RequireAuth>
+            <ProfilePage />
+          </RequireAuth>
+        }
+      />
       <Route path="/showcase" element={<ShowcasePage />} />
+      <Route path="/showcase/:id/viewer" element={<ShowcaseViewerPage />} />
       <Route path="/process" element={<ProcessPage />} />
       <Route path="/product" element={<ProductPage />} />
       <Route path="*" element={<NotFoundPage />} />
-      <Route path="/showcase/:id" element={<ShowcaseDetailPage />} />
+      <Route path="/showcase/:id" element={<ShowcaseLegacyRedirect />} />
       <Route path="/help" element={<HelpCenterPage />} />
       <Route path="/partnerships" element={<PartnershipsPage />} />
       <Route path="/privacy" element={<PrivacyPolicyPage />} />

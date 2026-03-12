@@ -17,14 +17,74 @@ export type SignupResponse = {
 
 export type SessionUser = {
   id?: number;
-  email?: string;
-  name?: string;
-  provider?: string;
+  email?: string | null;
+  name?: string | null;
+  nickname?: string | null;
+  provider?: string | null;
+  profileImageUrl?: string | null;
+  profileImageUpdatedAt?: string | null;
 };
 
 export type SessionResponse = {
   authenticated: boolean;
   user: SessionUser | null;
+};
+
+export type UserProfile = {
+  id: number;
+  email?: string | null;
+  name?: string | null;
+  nickname?: string | null;
+  provider?: string | null;
+  profileImageUrl?: string | null;
+  profileImageUpdatedAt?: string | null;
+  createdAt?: string | null;
+};
+
+export type UserProfileResponse = {
+  ok?: boolean;
+  user: UserProfile;
+};
+
+export type UpdateProfileResponse = {
+  ok: boolean;
+  message?: string;
+  user: UserProfile;
+};
+
+export type ProfileImagePresignResponse = {
+  ok: boolean;
+  key: string;
+  uploadUrl: string;
+  profileImageUrl: string | null;
+  expiresIn: number;
+};
+
+export type ProfileImageCompleteResponse = {
+  ok: boolean;
+  profileImageUrl: string | null;
+  profileImageUpdatedAt: string | null;
+};
+
+export type MyProfilePost = {
+  postId: number | string;
+  title: string;
+  thumbnailUrl: string | null;
+  createdAt: string | null;
+  likeCount: number;
+  downloadCount: number;
+  sceneId?: number | string | null;
+  jobId?: number | string | null;
+  viewerPath?: string | null;
+};
+
+export type MyProfilePostsResponse = {
+  items: MyProfilePost[];
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  totalPages: number;
+  hasNext: boolean;
 };
 
 export type UploadStatus = "UPLOADED" | "PROCESSING" | "COMPLETED" | "FAILED" | string;
@@ -60,19 +120,24 @@ export type VideoCompleteResponse = {
   inputVideoKey: string;
 };
 
+export type SceneLatestJobSummary = {
+  jobId: number;
+  status: string;
+  viewerReady?: boolean;
+  postable?: boolean;
+  createdAt?: string;
+  endedAt?: string | null;
+};
+
 export type VideoScene = {
-  id: string;
+  id: string | number;
+  userId?: number;
   title: string;
-  status: UploadStatus;
-  uploadId: string;
-  inputVideoKey: string;
-  sfmResultKey: string | null;
-  gaussianSplatKey: string | null;
-  meshKey: string | null;
-  thumbnailKey: string | null;
+  uploadId?: string | number;
+  inputVideoKey?: string | null;
   createdAt: string;
   updatedAt: string;
-  finishedAt: string | null;
+  latestJobSummary?: SceneLatestJobSummary | null;
 };
 
 export type VideoScenesResponse = {
@@ -89,12 +154,33 @@ export type JobStatus = "queued" | "processing" | "ready" | "failed" | "canceled
 
 export type SceneJob = {
   id: number;
-  pipeline: string;
-  status: JobStatus;
+  sceneId?: string | number;
+  batchJobId?: string | null;
+  uploadId?: string | number | null;
+  pipeline?: string | null;
+  status: string;
+  stage?: string | null;
+  progressPercent?: number | null;
+  cancelRequested?: boolean;
+  attempt?: number | null;
+  errorCode?: string | null;
   createdAt: string;
-  finishedAt: string | null;
-  errorMessage: string | null;
-  resultExists: boolean;
+  updatedAt?: string;
+  startedAt?: string | null;
+  endedAt?: string | null;
+  finishedAt?: string | null;
+  errorMessage?: string | null;
+  resultExists?: boolean;
+  imageCount?: number | null;
+  overlap?: number | null;
+  iteration?: number | null;
+  sfmResultKey?: string | null;
+  gaussianSplatKey?: string | null;
+  meshKey?: string | null;
+  thumbnailKey?: string | null;
+  viewerReady?: boolean;
+  postable?: boolean;
+  alreadyPosted?: boolean;
 };
 
 export type SceneJobsResponse = {
@@ -114,11 +200,49 @@ export type JobViewerResponse = {
   jobId: number;
   sceneId: string | number;
   pipeline: string;
-  status: JobStatus;
+  status: string;
   format: string;
   resultUrl: string | null;
   file: ViewerFileMeta | null;
   updatedAt: string;
+  viewerReady?: boolean;
+  postable?: boolean;
+  alreadyPosted?: boolean;
+  postId?: number | null;
+  isOwner?: boolean;
+  thumbnailUrl?: string | null;
+  thumbnailUpdatedAt?: string | null;
+};
+
+export type CreatePostPayload = {
+  jobId: number | string;
+  title?: string | null;
+};
+
+export type CreatePostResponse = {
+  postId: number;
+  jobId: number | string;
+  sceneId: number | string;
+  title: string;
+  shareUuid: string;
+  viewerPath: string;
+};
+
+export type PostThumbnailPresignResponse = {
+  ok: boolean;
+  postId: number | string;
+  sceneId: number | string;
+  jobId: number | string;
+  key: string;
+  uploadUrl: string;
+  thumbnailUrl: string | null;
+  expiresIn: number;
+};
+
+export type PostThumbnailCompleteResponse = {
+  ok: boolean;
+  thumbnailUrl: string | null;
+  thumbnailUpdatedAt: string | null;
 };
 
 export type CreateSceneJobPayload = {
@@ -130,7 +254,7 @@ export type CreateSceneJobPayload = {
 
 export type CreateSceneJobResponse = {
   jobId: number;
-  sceneId: number;
+  sceneId: string | number;
   status: string;
   batchJobId?: string;
   progressKey?: string;

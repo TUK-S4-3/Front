@@ -1,6 +1,8 @@
 import { request } from "./http";
 import type { LoginResponse, SessionResponse, SignupResponse } from "./types";
 
+export const SESSION_USER_REFRESH_EVENT = "session-user-refresh";
+
 export async function login(payload: { email: string; password: string }) {
   return request<LoginResponse>("/api/auth/login", {
     method: "POST",
