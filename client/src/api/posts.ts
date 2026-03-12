@@ -2,6 +2,7 @@ import { request } from "./http";
 import type {
   CreatePostPayload,
   CreatePostResponse,
+  DeletePostResponse,
   PostThumbnailCompleteResponse,
   PostThumbnailPresignResponse,
 } from "./types";
@@ -10,6 +11,13 @@ export function createPost(payload: CreatePostPayload) {
   return request<CreatePostResponse>("/api/v1/posts", {
     method: "POST",
     body: payload,
+    auth: true,
+  });
+}
+
+export function deletePost(postId: number | string) {
+  return request<DeletePostResponse>(`/api/v1/posts/${encodeURIComponent(String(postId))}`, {
+    method: "DELETE",
     auth: true,
   });
 }

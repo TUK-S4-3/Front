@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { AlertCircle, ArrowLeft, Camera, HardDrive, Loader2, RefreshCw, Share2 } from "lucide-react";
 import type { JobStatus, JobViewerResponse } from "../api/types";
+import { getPublicPostViewer } from "../api/public";
 import { getJobViewer } from "../api/videos";
 import {
   completePostThumbnail,
@@ -121,6 +122,8 @@ export default function JobViewerPage() {
   const [postFeedback, setPostFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [thumbnailSaving, setThumbnailSaving] = useState(false);
   const [thumbnailFeedback, setThumbnailFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [republishAvailable, setRepublishAvailable] = useState(false);
+  const [republishChecking, setRepublishChecking] = useState(false);
   const publishDialogRef = useRef<HTMLDivElement | null>(null);
   const viewerHandleRef = useRef<GaussianSplatViewerHandle | null>(null);
 
@@ -170,12 +173,18 @@ export default function JobViewerPage() {
   );
   const isReady = useMemo(() => isViewerReady(viewer), [viewer]);
   const canPublish = useMemo(
-    () => Boolean(viewer?.postable) && sceneMatched && isReady,
-    [viewer?.postable, sceneMatched, isReady]
+    () => (Boolean(viewer?.postable) || republishAvailable) && sceneMatched && isReady && !republishChecking,
+    [viewer?.postable, republishAvailable, sceneMatched, isReady, republishChecking]
   );
   const canManageThumbnail = useMemo(
-    () => Boolean(viewer?.postId) && Boolean(viewer?.isOwner) && sceneMatched && isReady,
-    [viewer?.isOwner, viewer?.postId, sceneMatched, isReady]
+    () =>
+      Boolean(viewer?.postId) &&
+      Boolean(viewer?.isOwner) &&
+      sceneMatched &&
+      isReady &&
+      !republishAvailable &&
+      !republishChecking,
+    [viewer?.isOwner, viewer?.postId, sceneMatched, isReady, republishAvailable, republishChecking]
   );
   const trimmedPublishTitle = publishTitle.trim();
   const canSubmitPost = Boolean(viewer?.jobId) && canPublish && trimmedPublishTitle.length > 0 && !posting;
@@ -183,6 +192,37 @@ export default function JobViewerPage() {
     viewer?.file && typeof viewer.file.contentLength === "number" ? viewer.file.contentLength : null;
   const fileAcceptRanges =
     viewer?.file && typeof viewer.file.acceptRanges === "boolean" ? viewer.file.acceptRanges : null;
+
+  useEffect(() => {
+    let canceled = false;
+
+    if (!viewer?.isOwner || !viewer?.postId || !isReady || !sceneMatched || viewer?.postable) {
+      setRepublishAvailable(false);
+      setRepublishChecking(false);
+      return undefined;
+    }
+
+    setRepublishChecking(true);
+
+    void getPublicPostViewer(viewer.postId)
+      .then(() => {
+        if (canceled) return;
+        setRepublishAvailable(false);
+      })
+      .catch((caught) => {
+        if (canceled) return;
+        const message = String(caught instanceof Error ? caught.message : caught);
+        setRepublishAvailable(message.includes("HTTP 404"));
+      })
+      .finally(() => {
+        if (canceled) return;
+        setRepublishChecking(false);
+      });
+
+    return () => {
+      canceled = true;
+    };
+  }, [viewer?.isOwner, viewer?.postId, viewer?.postable, isReady, sceneMatched]);
 
   useEffect(() => {
     if (!canPublish) {
@@ -394,11 +434,11 @@ export default function JobViewerPage() {
               type="button"
               size="sm"
               onClick={handleOpenPublish}
-              disabled={!canPublish || posting}
+              disabled={!canPublish || posting || republishChecking}
               className="h-9 rounded-md border border-[#D95F39]/45 bg-[#D95F39]/20 px-3 text-[10px] font-black uppercase tracking-[0.18em] text-[#FFE1D8] hover:bg-[#D95F39]/30 hover:text-white disabled:border-white/15 disabled:bg-white/10 disabled:text-white/35"
             >
-              <Share2 size={14} />
-              게시하기
+              {republishChecking ? <Loader2 size={14} className="animate-spin" /> : <Share2 size={14} />}
+              {republishChecking ? "게시 가능 여부 확인 중..." : "게시하기"}
             </Button>
             <button
               onClick={() => void fetchViewer()}
@@ -431,6 +471,12 @@ export default function JobViewerPage() {
             }`}
           >
             <AlertCircle size={18} /> {postFeedback.text}
+          </div>
+        )}
+
+        {republishAvailable && !postFeedback && (
+          <div className="pointer-events-auto px-4 py-3 flex items-center gap-3 text-xs font-bold uppercase tracking-widest rounded-md bg-[#1A3C34]/80 border border-[#8FD7B5]/35 text-[#D6FFE7]">
+            <AlertCircle size={18} /> 삭제된 게시물 이력이 감지되어 동일 Job을 다시 게시할 수 있습니다.
           </div>
         )}
 

@@ -228,6 +228,12 @@ export type CreatePostResponse = {
   viewerPath: string;
 };
 
+export type DeletePostResponse = {
+  ok: boolean;
+  postId: number | string;
+  message?: string;
+};
+
 export type PostThumbnailPresignResponse = {
   ok: boolean;
   postId: number | string;

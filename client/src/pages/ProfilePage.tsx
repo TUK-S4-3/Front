@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import Layout from "../components/Layout";
 import { SESSION_USER_REFRESH_EVENT } from "../api/auth";
+import { deletePost } from "../api/posts";
 import {
   completeMyProfileImage,
   getMyPosts,
@@ -24,6 +25,7 @@ import {
   Loader2,
   Mail,
   RefreshCw,
+  Trash2,
   UserRound,
 } from "lucide-react";
 
@@ -103,6 +105,15 @@ function mapPostsError(error: unknown) {
   return "내 게시물 목록을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.";
 }
 
+function mapDeletePostError(error: unknown) {
+  const message = String(error instanceof Error ? error.message : error);
+  if (message.includes("HTTP 401")) return "로그인이 필요합니다.";
+  if (message.includes("HTTP 403")) return "본인 게시물만 삭제할 수 있습니다.";
+  if (message.includes("HTTP 404")) return "이미 삭제되었거나 존재하지 않는 게시물입니다.";
+  if (message.includes("HTTP 409")) return "현재 상태에서는 게시물을 삭제할 수 없습니다.";
+  return "게시물 삭제에 실패했습니다. 잠시 후 다시 시도해 주세요.";
+}
+
 export default function ProfilePage() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [profileLoading, setProfileLoading] = useState(true);
@@ -116,6 +127,8 @@ export default function ProfilePage() {
   const [posts, setPosts] = useState<MyProfilePost[]>([]);
   const [postsLoading, setPostsLoading] = useState(true);
   const [postsError, setPostsError] = useState("");
+  const [postsFeedback, setPostsFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [deletingPostId, setDeletingPostId] = useState<number | string | null>(null);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [hasNext, setHasNext] = useState(false);
@@ -226,6 +239,39 @@ export default function ProfilePage() {
       setImageFeedback({ type: "error", text: mapProfileImageError(caught) });
     } finally {
       setImageUploading(false);
+    }
+  };
+
+  const handleDeletePost = async (post: MyProfilePost) => {
+    if (deletingPostId !== null) return;
+    const postTitle = post.title?.trim() || `Post ${post.postId}`;
+
+    const confirmed = window.confirm(
+      `'${postTitle}' 게시물을 삭제하시겠습니까?\n삭제 후에는 프로필과 쇼케이스 목록에서 제외됩니다.`
+    );
+    if (!confirmed) return;
+
+    setDeletingPostId(post.postId);
+    setPostsFeedback(null);
+
+    try {
+      const response = await deletePost(post.postId);
+      const nextPage = posts.length === 1 && page > 1 ? page - 1 : page;
+
+      setPostsFeedback({
+        type: "success",
+        text: response.message || "게시물이 삭제되었습니다.",
+      });
+
+      if (nextPage !== page) {
+        setPage(nextPage);
+      } else {
+        await loadPosts(nextPage);
+      }
+    } catch (caught) {
+      setPostsFeedback({ type: "error", text: mapDeletePostError(caught) });
+    } finally {
+      setDeletingPostId(null);
     }
   };
 
@@ -454,6 +500,17 @@ export default function ProfilePage() {
                     {postsError}
                   </div>
                 )}
+                {postsFeedback && (
+                  <div
+                    className={`mt-6 px-4 py-3 text-[12px] font-bold ${
+                      postsFeedback.type === "success"
+                        ? "border border-[#1A3C34]/15 bg-[#1A3C34]/5 text-[#1A3C34]"
+                        : "border border-[#D95F39]/20 bg-[#D95F39]/5 text-[#D95F39]"
+                    }`}
+                  >
+                    {postsFeedback.text}
+                  </div>
+                )}
 
                 {postsLoading ? (
                   <div className="flex min-h-[280px] items-center justify-center">
@@ -468,13 +525,25 @@ export default function ProfilePage() {
                   <div className="mt-6 space-y-4">
                     {posts.map((post) => {
                       const viewerPath = resolveProfilePostViewerPath(post);
+                      const isDeleting = deletingPostId !== null && String(deletingPostId) === String(post.postId);
                       return (
-                        <Link
+                        <article
                           key={String(post.postId)}
-                          to={viewerPath}
                           className="grid gap-5 border border-[#1A3C34]/8 p-4 transition-colors hover:border-[#1A3C34]/20 hover:bg-[#F2F0EB]/35 md:grid-cols-[140px,1fr]"
                         >
-                          <div className="relative aspect-[4/3] overflow-hidden bg-[#1A3C34]">
+                          <div className="md:col-span-2 flex justify-end">
+                            <button
+                              type="button"
+                              onClick={() => void handleDeletePost(post)}
+                              disabled={deletingPostId !== null}
+                              className="inline-flex h-9 items-center gap-2 border border-[#D95F39]/20 bg-[#D95F39]/5 px-3 text-[10px] font-black uppercase tracking-[0.18em] text-[#D95F39] transition-colors hover:bg-[#D95F39] hover:text-white disabled:opacity-50 disabled:hover:bg-[#D95F39]/5 disabled:hover:text-[#D95F39]"
+                            >
+                              {isDeleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                              {isDeleting ? "삭제 중..." : "삭제"}
+                            </button>
+                          </div>
+
+                          <Link to={viewerPath} className="relative aspect-[4/3] overflow-hidden bg-[#1A3C34]">
                             {post.thumbnailUrl ? (
                               <img
                                 src={post.thumbnailUrl}
@@ -485,10 +554,10 @@ export default function ProfilePage() {
                             ) : (
                               <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.16),_transparent_30%),linear-gradient(160deg,_#1A3C34_0%,_#10251F_55%,_#08100D_100%)]" />
                             )}
-                          </div>
+                          </Link>
 
                           <div className="flex min-w-0 flex-col justify-between gap-4">
-                            <div className="space-y-3">
+                            <Link to={viewerPath} className="space-y-3">
                               <div className="flex flex-wrap items-center gap-2 text-[10px] font-black uppercase tracking-[0.18em] text-[#1A3C34]/45">
                                 <span>Post {post.postId}</span>
                                 {post.sceneId != null && <span>Scene {post.sceneId}</span>}
@@ -511,14 +580,17 @@ export default function ProfilePage() {
                                   {Number(post.downloadCount || 0).toLocaleString("ko-KR")}
                                 </span>
                               </div>
-                            </div>
+                            </Link>
 
-                            <div className="inline-flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.18em] text-[#1A3C34]">
+                            <Link
+                              to={viewerPath}
+                              className="inline-flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.18em] text-[#1A3C34]"
+                            >
                               Viewer 열기
                               <ExternalLink size={14} />
-                            </div>
+                            </Link>
                           </div>
-                        </Link>
+                        </article>
                       );
                     })}
                   </div>
