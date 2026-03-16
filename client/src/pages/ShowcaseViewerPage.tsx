@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link, useParams } from "react-router-dom";
 import {
@@ -56,6 +56,29 @@ function isViewerReady(viewer: PublicPostViewer | null) {
   return normalizeStatus(viewer.status) === "ready";
 }
 
+const DOWNLOAD_ITEMS = [
+  {
+    id: "input-video",
+    title: "input video",
+    description: "원본 입력 비디오",
+  },
+  {
+    id: "log",
+    title: "log",
+    description: "처리 로그 파일",
+  },
+  {
+    id: "sfm",
+    title: "SfM",
+    description: "Structure from Motion 결과",
+  },
+  {
+    id: "gaussian-splatting",
+    title: "Gaussian Splatting",
+    description: "가우시안 스플래팅 결과",
+  },
+] as const;
+
 export default function ShowcaseViewerPage() {
   const { id } = useParams();
   const postIdText = String(id ?? "");
@@ -63,6 +86,8 @@ export default function ShowcaseViewerPage() {
   const [viewer, setViewer] = useState<PublicPostViewer | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
+  const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
+  const downloadMenuRef = useRef<HTMLDivElement | null>(null);
 
   const fetchViewer = useCallback(async () => {
     if (!postIdText) {
@@ -87,6 +112,10 @@ export default function ShowcaseViewerPage() {
     void fetchViewer();
   }, [fetchViewer]);
 
+  useEffect(() => {
+    setDownloadMenuOpen(false);
+  }, [postIdText]);
+
   const currentStatus = useMemo(() => normalizeStatus(viewer?.status), [viewer?.status]);
   const ready = useMemo(() => isViewerReady(viewer), [viewer]);
   const fileContentLength =
@@ -106,6 +135,21 @@ export default function ShowcaseViewerPage() {
       window.clearInterval(timer);
     };
   }, [fetchViewer, shouldPoll]);
+
+  useEffect(() => {
+    if (!downloadMenuOpen) return undefined;
+
+    function handlePointerDown(event: MouseEvent) {
+      if (!downloadMenuRef.current?.contains(event.target as Node)) {
+        setDownloadMenuOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+    };
+  }, [downloadMenuOpen]);
 
   const viewerContent = (
     <div className="fixed inset-0 z-[9999] bg-[#090B0E] text-white overflow-hidden">
@@ -179,32 +223,55 @@ export default function ShowcaseViewerPage() {
 
           <div className="flex flex-col items-stretch gap-2 md:items-end">
             <div className="flex flex-wrap items-center gap-2 md:justify-end">
-              {!viewer?.isOwner && (
-                <>
-                  <Button
-                    type="button"
-                    disabled
-                    className="h-10 rounded-full border border-white/15 bg-white/10 px-4 text-[11px] font-black uppercase tracking-[0.18em] text-white/80 disabled:pointer-events-none disabled:opacity-100"
-                  >
-                    <Heart size={14} />
-                    좋아요
-                    <span className="ml-1 rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-white/85">
-                      {viewer?.likeCount ?? 0}
-                    </span>
-                  </Button>
-                  <Button
-                    type="button"
-                    disabled
-                    className="h-10 rounded-full border border-white/15 bg-white/10 px-4 text-[11px] font-black uppercase tracking-[0.18em] text-white/80 disabled:pointer-events-none disabled:opacity-100"
-                  >
-                    <Download size={14} />
-                    다운로드
-                    <span className="ml-1 rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-white/85">
-                      {viewer?.downloadCount ?? 0}
-                    </span>
-                  </Button>
-                </>
-              )}
+              <Button
+                type="button"
+                disabled
+                className="h-10 rounded-full border border-white/15 bg-white/10 px-4 text-[11px] font-black uppercase tracking-[0.18em] text-white/80 disabled:pointer-events-none disabled:opacity-100"
+              >
+                <Heart size={14} />
+                좋아요
+                <span className="ml-1 rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-white/85">
+                  {viewer?.likeCount ?? 0}
+                </span>
+              </Button>
+              <div ref={downloadMenuRef} className="relative">
+                <Button
+                  type="button"
+                  onClick={() => setDownloadMenuOpen((prev) => !prev)}
+                  aria-expanded={downloadMenuOpen}
+                  aria-haspopup="menu"
+                  className="h-10 rounded-full border border-white/15 bg-white/10 px-4 text-[11px] font-black uppercase tracking-[0.18em] text-white/80 hover:bg-white/15"
+                >
+                  <Download size={14} />
+                  다운로드
+                  <span className="ml-1 rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-white/85">
+                    {viewer?.downloadCount ?? 0}
+                  </span>
+                </Button>
+                {downloadMenuOpen && (
+                  <div className="absolute right-0 top-[calc(100%+0.5rem)] w-[280px] overflow-hidden rounded-2xl border border-white/15 bg-[#101317]/95 shadow-[0_18px_50px_rgba(0,0,0,0.35)] backdrop-blur-md">
+                    <div className="border-b border-white/10 px-4 py-3">
+                      <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-white/45">Download Files</p>
+                    </div>
+                    <div className="p-2">
+                      {DOWNLOAD_ITEMS.map((item) => (
+                        <div
+                          key={item.id}
+                          className="flex items-center justify-between gap-3 rounded-xl px-3 py-3 text-left transition-colors hover:bg-white/5"
+                        >
+                          <div className="min-w-0">
+                            <div className="text-sm font-semibold text-white">{item.title}</div>
+                            <div className="mt-1 text-[11px] text-white/45">{item.description}</div>
+                          </div>
+                          <span className="shrink-0 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-white/55">
+                            File
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
               <button
                 onClick={() => void fetchViewer()}
                 className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-white/10 text-white/80 transition-colors hover:border-[#D95F39]/45 hover:bg-[#D95F39]/20 hover:text-white"
