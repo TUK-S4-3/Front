@@ -155,6 +155,9 @@ export type JobStatus = "queued" | "processing" | "ready" | "failed" | "canceled
 export type SceneJob = {
   id: number;
   sceneId?: string | number;
+  keyframeSetId?: string | number | null;
+  sourceJobId?: string | number | null;
+  keyframeSet?: SceneKeyframeSet | null;
   batchJobId?: string | null;
   uploadId?: string | number | null;
   pipeline?: string | null;
@@ -188,6 +191,48 @@ export type SceneJobsResponse = {
   inputVideoKey?: string | null;
   jobs: SceneJob[];
   nextCursor: string | null;
+};
+
+export type SceneKeyframeSet = {
+  id: number | string;
+  sceneId: number | string;
+  version: number;
+  status: string;
+  active?: boolean;
+  storagePrefix: string;
+  selectedFramesPrefix?: string | null;
+  selectedFramesCsvKey?: string | null;
+  metricsKey?: string | null;
+  configKey?: string | null;
+  frameIndexPlotKey?: string | null;
+  frameIndexPlotUrl?: string | null;
+  timelineComparisonKey?: string | null;
+  timelineComparisonUrl?: string | null;
+  selectedFrameCount?: number | null;
+  configHash?: string | null;
+  errorMessage?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+};
+
+export type SceneKeyframeSetsResponse = {
+  sceneId: string | number;
+  activeKeyframeSetId?: string | number | null;
+  keyframeSets: SceneKeyframeSet[];
+};
+
+export type CreateSceneKeyframeSetResponse = {
+  keyframeSet: SceneKeyframeSet;
+  jobId: number | string;
+  batchJobId?: string | null;
+  runner?: string;
+  statusKey?: string;
+};
+
+export type ActivateSceneKeyframeSetResponse = {
+  sceneId: string | number;
+  activeKeyframeSetId: string | number;
+  keyframeSet: SceneKeyframeSet;
 };
 
 export type ViewerFileMeta = {
@@ -252,13 +297,16 @@ export type PostThumbnailCompleteResponse = {
 };
 
 export type CreateSceneJobPayload = {
-  pipeline?: "3dgs";
+  pipeline?: "3dgs" | "sfm" | "gs";
+  keyframeSetId?: string | number | null;
+  sourceJobId?: string | number | null;
 };
 
 export type CreateSceneJobResponse = {
   jobId: number;
   sceneId: string | number;
   status: string;
+  keyframeSet?: SceneKeyframeSet | null;
   batchJobId?: string;
   runner?: string;
   progressKey?: string;

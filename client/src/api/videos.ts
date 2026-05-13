@@ -1,8 +1,11 @@
 import { request } from "./http";
 import type {
+  ActivateSceneKeyframeSetResponse,
+  CreateSceneKeyframeSetResponse,
   CreateSceneJobPayload,
   CreateSceneJobResponse,
   JobViewerResponse,
+  SceneKeyframeSetsResponse,
   SceneJobProgressResponse,
   SceneJobsResponse,
   VideoCompleteResponse,
@@ -46,13 +49,15 @@ export function getMyScenes(page = 1) {
 type GetSceneJobsOptions = {
   cursor?: string;
   limit?: number;
-  pipeline?: "3dgs";
+  pipeline?: "3dgs" | "sfm" | "gs";
 };
 
 export function getSceneJobs(sceneId: string | number, options: GetSceneJobsOptions = {}) {
   const params = new URLSearchParams();
   params.set("limit", String(Math.min(50, Math.max(1, options.limit ?? 20))));
-  params.set("pipeline", options.pipeline ?? "3dgs");
+  if (options.pipeline) {
+    params.set("pipeline", options.pipeline);
+  }
   if (options.cursor) {
     params.set("cursor", options.cursor);
   }
@@ -73,9 +78,40 @@ export function createSceneJob(sceneId: string | number, payload: CreateSceneJob
     method: "POST",
     body: {
       pipeline: payload.pipeline ?? "3dgs",
+      keyframeSetId: payload.keyframeSetId ?? null,
+      sourceJobId: payload.sourceJobId ?? null,
     },
     auth: true,
   });
+}
+
+export function getSceneKeyframeSets(sceneId: string | number) {
+  return request<SceneKeyframeSetsResponse>(
+    `/api/v1/scenes/${encodeURIComponent(String(sceneId))}/keyframe-sets`,
+    { auth: true }
+  );
+}
+
+export function createSceneKeyframeSet(sceneId: string | number) {
+  return request<CreateSceneKeyframeSetResponse>(
+    `/api/v1/scenes/${encodeURIComponent(String(sceneId))}/keyframe-sets`,
+    {
+      method: "POST",
+      body: {},
+      auth: true,
+    }
+  );
+}
+
+export function activateSceneKeyframeSet(sceneId: string | number, keyframeSetId: string | number) {
+  return request<ActivateSceneKeyframeSetResponse>(
+    `/api/v1/scenes/${encodeURIComponent(String(sceneId))}/keyframe-sets/${encodeURIComponent(String(keyframeSetId))}/active`,
+    {
+      method: "PATCH",
+      body: {},
+      auth: true,
+    }
+  );
 }
 
 export function getSceneJobProgress(sceneId: string | number, jobId: string | number) {

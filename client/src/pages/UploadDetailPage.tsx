@@ -1,12 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { createSceneJob, getSceneJobProgress, getSceneJobs } from "../api/videos";
-import type { JobProgressMetrics, JobStatus, SceneJob } from "../api/types";
+import {
+  activateSceneKeyframeSet,
+  createSceneJob,
+  createSceneKeyframeSet,
+  getSceneJobProgress,
+  getSceneJobs,
+  getSceneKeyframeSets,
+} from "../api/videos";
+import type { JobProgressMetrics, JobStatus, SceneJob, SceneKeyframeSet } from "../api/types";
 import Layout from "../components/Layout";
 import { Separator } from "../components/ui/separator";
 import {
   ArrowLeft, CheckCircle2, AlertCircle,
-  HardDrive, RefreshCw, Loader2, Sparkles
+  Film, HardDrive, ImageIcon, RefreshCw, Loader2, Sparkles
 } from "lucide-react";
 
 type JobProgressView = {
@@ -126,11 +133,15 @@ export default function UploadDetailPage() {
   const sceneIdText = String(sceneId ?? "");
 
   const [jobs, setJobs] = useState<SceneJob[]>([]);
+  const [keyframeSets, setKeyframeSets] = useState<SceneKeyframeSet[]>([]);
+  const [selectedKeyframeSetId, setSelectedKeyframeSetId] = useState<string | number | null>(null);
   const [selectedJobId, setSelectedJobId] = useState<number | null>(null);
   const [inputVideoKey, setInputVideoKey] = useState<string | null>(null);
   const [jobProgress, setJobProgress] = useState<JobProgressView | null>(null);
   const [jobsLoading, setJobsLoading] = useState(true);
   const [creatingJob, setCreatingJob] = useState(false);
+  const [creatingKeyframeSet, setCreatingKeyframeSet] = useState(false);
+  const [activatingKeyframeSet, setActivatingKeyframeSet] = useState(false);
   const [err, setErr] = useState("");
 
   const publicStorageBaseUrl = useMemo(() => {
@@ -150,7 +161,7 @@ export default function UploadDetailPage() {
   );
 
   const fetchJobs = useCallback(async (preferredJobId?: number | null) => {
-    const response = await getSceneJobs(sceneIdText, { limit: 20, pipeline: "3dgs" });
+    const response = await getSceneJobs(sceneIdText, { limit: 20 });
     const nextJobs = Array.isArray(response.jobs) ? response.jobs : [];
     const nextInputVideoKey =
       typeof response.inputVideoKey === "string" && response.inputVideoKey.trim()
@@ -167,6 +178,20 @@ export default function UploadDetailPage() {
     });
   }, [sceneIdText]);
 
+  const fetchKeyframeSets = useCallback(async (preferredKeyframeSetId?: string | number | null) => {
+    const response = await getSceneKeyframeSets(sceneIdText);
+    const nextKeyframeSets = Array.isArray(response.keyframeSets) ? response.keyframeSets : [];
+    setKeyframeSets(nextKeyframeSets);
+    setSelectedKeyframeSetId((current) => {
+      const target = preferredKeyframeSetId ?? current;
+      if (target != null && nextKeyframeSets.some((item) => String(item.id) === String(target))) {
+        return target;
+      }
+      const active = nextKeyframeSets.find((item) => item.active);
+      return active?.id ?? nextKeyframeSets[0]?.id ?? null;
+    });
+  }, [sceneIdText]);
+
   useEffect(() => {
     if (!sceneIdText) {
       setErr("유효하지 않은 Scene ID입니다.");
@@ -178,7 +203,7 @@ export default function UploadDetailPage() {
     setJobsLoading(true);
     void (async () => {
       try {
-        await fetchJobs();
+        await Promise.all([fetchJobs(), fetchKeyframeSets()]);
         if (!mounted) return;
         setErr("");
       } catch (caught) {
@@ -196,7 +221,7 @@ export default function UploadDetailPage() {
     return () => {
       mounted = false;
     };
-  }, [fetchJobs, sceneIdText, nav]);
+  }, [fetchJobs, fetchKeyframeSets, sceneIdText, nav]);
 
   useEffect(() => {
     if (selectedJobId == null) {
@@ -211,6 +236,21 @@ export default function UploadDetailPage() {
   const selectedJob = useMemo(
     () => jobs.find((job) => job.id === selectedJobId) ?? null,
     [jobs, selectedJobId]
+  );
+
+  const selectedKeyframeSet = useMemo(
+    () => keyframeSets.find((item) => String(item.id) === String(selectedKeyframeSetId)) ?? null,
+    [keyframeSets, selectedKeyframeSetId]
+  );
+  const latestReadySfmJob = useMemo(
+    () =>
+      jobs.find(
+        (job) =>
+          job.pipeline === "sfm" &&
+          normalizeJobStatus(job.status) === "ready" &&
+          Boolean(job.sfmResultKey)
+      ) ?? null,
+    [jobs]
   );
 
   const currentProgress = useMemo(() => {
@@ -249,10 +289,10 @@ export default function UploadDetailPage() {
       );
 
       if (normalizedStatus === "ready" || normalizedStatus === "failed" || normalizedStatus === "canceled") {
-        await fetchJobs(jobId);
+        await Promise.all([fetchJobs(jobId), fetchKeyframeSets()]);
       }
     },
-    [sceneIdText, fetchJobs]
+    [sceneIdText, fetchJobs, fetchKeyframeSets]
   );
 
   useEffect(() => {
@@ -293,13 +333,26 @@ export default function UploadDetailPage() {
     };
   }, [selectedJobId, currentStatus, syncJobProgress]);
 
-  const handleCreateJob = async () => {
+  const gsSourceJob = useMemo(() => {
+    if (
+      selectedJob?.pipeline === "sfm" &&
+      normalizeJobStatus(selectedJob.status) === "ready" &&
+      selectedJob.sfmResultKey
+    ) {
+      return selectedJob;
+    }
+    return latestReadySfmJob;
+  }, [latestReadySfmJob, selectedJob]);
+
+  const createPipelineJob = async (pipeline: "3dgs" | "sfm" | "gs", sourceJobId?: string | number | null) => {
     if (!sceneIdText) return;
     setCreatingJob(true);
     setErr("");
     try {
       const created = await createSceneJob(sceneIdText, {
-        pipeline: "3dgs",
+        pipeline,
+        keyframeSetId: pipeline === "gs" ? null : selectedKeyframeSetId,
+        sourceJobId: sourceJobId ?? null,
       });
 
       const newJobId = Number(created.jobId);
@@ -315,6 +368,46 @@ export default function UploadDetailPage() {
       }
     } finally {
       setCreatingJob(false);
+    }
+  };
+
+  const handleCreateJob = () => createPipelineJob("sfm");
+  const handleCreateGsJob = () => createPipelineJob("gs", gsSourceJob?.id ?? null);
+
+  const handleCreateKeyframeSet = async () => {
+    if (!sceneIdText) return;
+    setCreatingKeyframeSet(true);
+    setErr("");
+    try {
+      const created = await createSceneKeyframeSet(sceneIdText);
+      await Promise.all([fetchKeyframeSets(created.keyframeSet.id), fetchJobs(Number(created.jobId))]);
+      const newJobId = Number(created.jobId);
+      if (Number.isFinite(newJobId)) {
+        setSelectedJobId(newJobId);
+      }
+    } catch (caught) {
+      const message = mapCreateJobError(caught);
+      setErr(message);
+      if (message.includes("로그인이 필요합니다.") || message.includes("접근 권한이 없습니다.")) {
+        nav("/login");
+      }
+    } finally {
+      setCreatingKeyframeSet(false);
+    }
+  };
+
+  const handleActivateKeyframeSet = async () => {
+    if (!sceneIdText || selectedKeyframeSetId == null) return;
+    setActivatingKeyframeSet(true);
+    setErr("");
+    try {
+      await activateSceneKeyframeSet(sceneIdText, selectedKeyframeSetId);
+      await fetchKeyframeSets(selectedKeyframeSetId);
+    } catch (caught) {
+      const message = mapCreateJobError(caught);
+      setErr(message);
+    } finally {
+      setActivatingKeyframeSet(false);
     }
   };
 
@@ -491,6 +584,105 @@ export default function UploadDetailPage() {
 
             <div className="lg:col-span-4 space-y-8">
               <div className="bg-white border border-[#1A3C34]/10 p-10 space-y-10">
+                <div className="space-y-5">
+                  <div className="flex items-center justify-between gap-3">
+                    <h4 className="text-[12px] font-black uppercase tracking-[0.4em] text-[#1A3C34]">
+                      Keyframes
+                    </h4>
+                    <button
+                      type="button"
+                      onClick={handleCreateKeyframeSet}
+                      disabled={creatingKeyframeSet}
+                      className="h-9 px-3 bg-[#1A3C34] text-[#F2F0EB] text-[9px] font-black uppercase tracking-[0.14em] hover:bg-[#D95F39] transition-colors disabled:opacity-60"
+                    >
+                      {creatingKeyframeSet ? "Running" : "Rerun KS"}
+                    </button>
+                  </div>
+
+                  {keyframeSets.length === 0 ? (
+                    <div className="border border-[#1A3C34]/10 bg-[#F2F0EB] p-4 text-[11px] font-bold text-[#1A3C34]/45 uppercase tracking-[0.14em]">
+                      아직 생성된 KS 버전이 없습니다. Job 생성 시 자동 생성됩니다.
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {keyframeSets.map((item) => {
+                        const active = String(item.id) === String(selectedKeyframeSetId);
+                        return (
+                          <button
+                            key={String(item.id)}
+                            type="button"
+                            onClick={() => setSelectedKeyframeSetId(item.id)}
+                            className={`w-full text-left border px-4 py-3 transition-colors ${
+                              active
+                                ? "border-[#D95F39] bg-[#D95F39]/10"
+                                : "border-[#1A3C34]/10 hover:border-[#1A3C34]/25 bg-white"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-3">
+                              <span className="text-[11px] font-black uppercase tracking-[0.18em] text-[#1A3C34]">
+                                KS v{item.version}
+                              </span>
+                              <span className="text-[9px] font-black uppercase tracking-[0.14em] text-[#1A3C34]/55">
+                                {item.active ? "Active" : item.status}
+                              </span>
+                            </div>
+                            <div className="mt-2 text-[10px] text-[#1A3C34]/45 font-bold uppercase tracking-[0.12em]">
+                              Frames {item.selectedFrameCount ?? 0} · {formatDateLabel(item.createdAt)}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {selectedKeyframeSet && (
+                    <div className="space-y-4 border border-[#1A3C34]/10 p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="text-[10px] font-black uppercase tracking-[0.16em] text-[#1A3C34]/55">
+                          Selected KS v{selectedKeyframeSet.version}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleActivateKeyframeSet}
+                          disabled={activatingKeyframeSet || selectedKeyframeSet.active || selectedKeyframeSet.status !== "ready"}
+                          className="h-8 px-3 border border-[#1A3C34]/30 text-[9px] font-black uppercase tracking-[0.12em] text-[#1A3C34] disabled:opacity-40"
+                        >
+                          {selectedKeyframeSet.active ? "Active" : "Set Active"}
+                        </button>
+                      </div>
+
+                      {selectedKeyframeSet.frameIndexPlotUrl ? (
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.14em] text-[#1A3C34]/50">
+                            <ImageIcon size={13} /> Frame Index
+                          </div>
+                          <img
+                            src={selectedKeyframeSet.frameIndexPlotUrl}
+                            alt={`KS v${selectedKeyframeSet.version} frame index comparison`}
+                            className="w-full border border-[#1A3C34]/10 bg-[#F2F0EB]"
+                          />
+                        </div>
+                      ) : null}
+
+                      {selectedKeyframeSet.timelineComparisonUrl ? (
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.14em] text-[#1A3C34]/50">
+                            <Film size={13} /> Timeline
+                          </div>
+                          <video
+                            src={selectedKeyframeSet.timelineComparisonUrl}
+                            controls
+                            preload="metadata"
+                            className="w-full border border-[#1A3C34]/10 bg-black"
+                          />
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
+                </div>
+
+                <Separator className="bg-[#1A3C34]/10" />
+
                 <h4 className="text-[12px] font-black uppercase tracking-[0.4em] text-[#1A3C34]">Create Job</h4>
 
                 <div className="space-y-5">
@@ -500,8 +692,19 @@ export default function UploadDetailPage() {
                     disabled={creatingJob}
                     className="w-full h-12 bg-[#1A3C34] text-[#F2F0EB] text-[11px] font-black uppercase tracking-[0.2em] hover:bg-[#D95F39] transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                   >
-                    {creatingJob ? "Creating..." : "Create Job"}
+                    {creatingJob ? "Creating..." : "Create SfM Job"}
                   </button>
+                  <button
+                    type="button"
+                    onClick={handleCreateGsJob}
+                    disabled={creatingJob || !gsSourceJob}
+                    className="w-full h-12 border border-[#1A3C34] text-[#1A3C34] text-[11px] font-black uppercase tracking-[0.2em] hover:bg-[#1A3C34] hover:text-[#F2F0EB] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {gsSourceJob ? `Create GS from Job ${gsSourceJob.id}` : "GS Needs Ready SfM"}
+                  </button>
+                  <div className="text-[11px] font-medium text-[#1A3C34]/50 leading-relaxed">
+                    선택된 KS 버전{selectedKeyframeSet ? ` v${selectedKeyframeSet.version}` : ""}으로 SfM을 먼저 생성하고, READY 상태의 SfM job으로 GS를 실행합니다.
+                  </div>
                 </div>
 
                 <Separator className="bg-[#1A3C34]/10" />
