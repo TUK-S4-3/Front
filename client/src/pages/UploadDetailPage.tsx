@@ -59,7 +59,7 @@ function mapCreateJobError(error: unknown) {
   const message = String(error instanceof Error ? error.message : error);
   if (message.includes("HTTP 401")) return "로그인이 필요합니다.";
   if (message.includes("HTTP 403")) return "해당 Scene에 접근 권한이 없습니다.";
-  if (message.includes("BAD_REQUEST")) return "Job 파라미터가 올바르지 않습니다.";
+  if (message.includes("BAD_REQUEST")) return "Job 생성 요청이 올바르지 않습니다.";
   return "Job 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.";
 }
 
@@ -68,18 +68,18 @@ function normalizeProgress(value: number | undefined) {
   return Math.min(1, Math.max(0, Number(value)));
 }
 
-function normalizePublicS3BaseUrl(baseUrl: string) {
+function normalizePublicStorageBaseUrl(baseUrl: string) {
   return baseUrl.replace(/\/+$/, "");
 }
 
-function encodeS3KeyBySegment(key: string) {
+function encodeStorageKeyBySegment(key: string) {
   return key.split("/").map((segment) => encodeURIComponent(segment)).join("/");
 }
 
 function buildPublicVideoUrl(baseUrl: string, inputVideoKey: string | null) {
-  const normalizedBaseUrl = normalizePublicS3BaseUrl(baseUrl.trim());
+  const normalizedBaseUrl = normalizePublicStorageBaseUrl(baseUrl.trim());
   if (!normalizedBaseUrl || !inputVideoKey) return "";
-  return `${normalizedBaseUrl}/${encodeS3KeyBySegment(inputVideoKey)}`;
+  return `${normalizedBaseUrl}/${encodeStorageKeyBySegment(inputVideoKey)}`;
 }
 
 function isViewerReadyJob(job: SceneJob | null | undefined) {
@@ -108,11 +108,6 @@ function selectDefaultJobId(jobs: SceneJob[]) {
   return latestSuccessfulJob?.id ?? jobs[0]?.id ?? null;
 }
 
-function formatOptionalNumber(value: number | null | undefined) {
-  if (!Number.isFinite(value)) return "-";
-  return Number(value).toLocaleString("ko-KR");
-}
-
 function formatDateLabel(value: string | null | undefined) {
   if (!value) return "-";
   const parsed = Date.parse(value);
@@ -120,8 +115,8 @@ function formatDateLabel(value: string | null | undefined) {
   return new Date(parsed).toLocaleString("ko-KR");
 }
 
-function formatParameterValue(value: number | null | undefined) {
-  if (!Number.isFinite(value)) return "미제공";
+function formatAutoParameterValue(value: number | null | undefined) {
+  if (!Number.isFinite(value) || Number(value) <= 0) return "자동";
   return Number(value).toLocaleString("ko-KR");
 }
 
@@ -137,18 +132,21 @@ export default function UploadDetailPage() {
   const [jobsLoading, setJobsLoading] = useState(true);
   const [creatingJob, setCreatingJob] = useState(false);
   const [err, setErr] = useState("");
-  const [imageCount, setImageCount] = useState(50);
-  const [overlap, setOverlap] = useState(10);
-  const [iteration, setIteration] = useState(30000);
 
-  const publicS3BaseUrl = useMemo(() => {
+  const publicStorageBaseUrl = useMemo(() => {
     const env = import.meta.env as Record<string, string | undefined>;
-    return String(env.VITE_PUBLIC_S3_BASE_URL ?? env.PUBLIC_S3_BASE_URL ?? "").trim();
+    return String(
+      env.VITE_PUBLIC_STORAGE_BASE_URL ??
+        env.PUBLIC_STORAGE_BASE_URL ??
+        env.VITE_PUBLIC_S3_BASE_URL ??
+        env.PUBLIC_S3_BASE_URL ??
+        "http://localhost:3000/local-assets"
+    ).trim();
   }, []);
 
   const sourceVideoUrl = useMemo(
-    () => buildPublicVideoUrl(publicS3BaseUrl, inputVideoKey),
-    [publicS3BaseUrl, inputVideoKey]
+    () => buildPublicVideoUrl(publicStorageBaseUrl, inputVideoKey),
+    [publicStorageBaseUrl, inputVideoKey]
   );
 
   const fetchJobs = useCallback(async (preferredJobId?: number | null) => {
@@ -302,9 +300,6 @@ export default function UploadDetailPage() {
     try {
       const created = await createSceneJob(sceneIdText, {
         pipeline: "3dgs",
-        imageCount: Math.max(1, Math.round(imageCount)),
-        overlap: Math.max(0, Math.round(overlap)),
-        iteration: Math.max(1, Math.round(iteration)),
       });
 
       const newJobId = Number(created.jobId);
@@ -426,7 +421,7 @@ export default function UploadDetailPage() {
                       Video Unavailable
                     </h3>
                     <p className="mt-2 text-[#1A3C34]/50 text-[13px] font-medium max-w-xs mx-auto leading-relaxed">
-                      inputVideoKey 또는 PUBLIC_S3_BASE_URL 설정을 확인해 주세요.
+                      inputVideoKey 또는 PUBLIC_STORAGE_BASE_URL 설정을 확인해 주세요.
                     </p>
                   </div>
                 )}
@@ -467,7 +462,7 @@ export default function UploadDetailPage() {
               <div className="bg-white border border-[#1A3C34]/10 p-10 space-y-6">
                 <div className="flex items-center justify-between">
                   <h3 className="text-[12px] font-black uppercase tracking-[0.3em] text-[#1A3C34]/30">
-                    Selected Job Parameters
+                    Selected Job Runtime
                   </h3>
                   <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#1A3C34]/50">
                     Job {selectedJobId ?? "-"}
@@ -476,13 +471,19 @@ export default function UploadDetailPage() {
 
                 <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                   <ParameterCard label="Pipeline" value={selectedJob?.pipeline ?? "3dgs"} />
-                  <ParameterCard label="Image Count" value={formatParameterValue(selectedJob?.imageCount)} />
-                  <ParameterCard label="Overlap" value={formatParameterValue(selectedJob?.overlap)} />
-                  <ParameterCard label="Iteration" value={formatParameterValue(selectedJob?.iteration)} />
+                  <ParameterCard
+                    label="Image Set"
+                    value={formatAutoParameterValue(currentProgress?.metrics?.frameCount ?? selectedJob?.imageCount)}
+                  />
+                  <ParameterCard label="Overlap" value={formatAutoParameterValue(selectedJob?.overlap)} />
+                  <ParameterCard
+                    label="Iteration"
+                    value={formatAutoParameterValue(currentProgress?.metrics?.itersRequested ?? selectedJob?.iteration)}
+                  />
                 </div>
 
                 <p className="text-[12px] font-medium text-[#1A3C34]/55">
-                  선택한 JOB 생성 시 사용된 파라미터입니다. 값이 비어 있으면 현재 목록 API에서 해당 필드가 제공되지 않은 상태입니다.
+                  이미지셋과 Overlap은 Keyframe Selection 결과 기준으로 자동 산출됩니다.
                 </p>
               </div>
 
@@ -493,65 +494,13 @@ export default function UploadDetailPage() {
                 <h4 className="text-[12px] font-black uppercase tracking-[0.4em] text-[#1A3C34]">Create Job</h4>
 
                 <div className="space-y-5">
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <label htmlFor="image-count" className="text-[10px] font-black uppercase tracking-[0.2em] text-[#1A3C34]/60">
-                        Image Count
-                      </label>
-                      <span className="text-[11px] font-black text-[#1A3C34]">{imageCount}</span>
-                    </div>
-                    <input
-                      id="image-count"
-                      type="range"
-                      min={1}
-                      max={500}
-                      value={imageCount}
-                      disabled={creatingJob}
-                      onChange={(event) => setImageCount(Number(event.target.value))}
-                      className="w-full accent-[#D95F39]"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <label htmlFor="overlap" className="block text-[10px] font-black uppercase tracking-[0.2em] text-[#1A3C34]/60">
-                        Overlap
-                      </label>
-                      <input
-                        id="overlap"
-                        type="number"
-                        min={0}
-                        step={1}
-                        value={overlap}
-                        disabled={creatingJob}
-                        onChange={(event) => setOverlap(Number(event.target.value))}
-                        className="w-full h-11 px-3 bg-[#F2F0EB] border border-[#1A3C34]/20 text-[13px] font-medium text-[#1A3C34] focus:outline-none focus:border-[#D95F39]"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label htmlFor="iteration" className="block text-[10px] font-black uppercase tracking-[0.2em] text-[#1A3C34]/60">
-                        Iteration
-                      </label>
-                      <input
-                        id="iteration"
-                        type="number"
-                        min={1}
-                        step={100}
-                        value={iteration}
-                        disabled={creatingJob}
-                        onChange={(event) => setIteration(Number(event.target.value))}
-                        className="w-full h-11 px-3 bg-[#F2F0EB] border border-[#1A3C34]/20 text-[13px] font-medium text-[#1A3C34] focus:outline-none focus:border-[#D95F39]"
-                      />
-                    </div>
-                  </div>
-
                   <button
                     type="button"
                     onClick={handleCreateJob}
                     disabled={creatingJob}
                     className="w-full h-12 bg-[#1A3C34] text-[#F2F0EB] text-[11px] font-black uppercase tracking-[0.2em] hover:bg-[#D95F39] transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                   >
-                    {creatingJob ? "Creating..." : "Create Batch Job"}
+                    {creatingJob ? "Creating..." : "Create Job"}
                   </button>
                 </div>
 
@@ -646,9 +595,9 @@ export default function UploadDetailPage() {
                   <div>Ended At: {formatDateLabel(selectedJob?.endedAt ?? selectedJob?.finishedAt)}</div>
                 </div>
                 <div className="text-[11px] opacity-70 font-medium space-y-1">
-                  <div>imageCount: {formatOptionalNumber(selectedJob?.imageCount)}</div>
-                  <div>overlap: {formatOptionalNumber(selectedJob?.overlap)}</div>
-                  <div>iteration: {formatOptionalNumber(selectedJob?.iteration)}</div>
+                  <div>Image Set: {formatAutoParameterValue(currentProgress?.metrics?.frameCount ?? selectedJob?.imageCount)}</div>
+                  <div>Overlap: {formatAutoParameterValue(selectedJob?.overlap)}</div>
+                  <div>Iteration: {formatAutoParameterValue(currentProgress?.metrics?.itersRequested ?? selectedJob?.iteration)}</div>
                 </div>
                 {currentProgress?.metrics && (
                   <div className="text-[11px] opacity-70 font-medium space-y-1">

@@ -16,6 +16,7 @@ export default defineConfig({
     allowedHosts: ["tuk-capstone.duckdns.org"],
     proxy: {
       "/api": "http://127.0.0.1:3000",
+      "/local-assets": "http://127.0.0.1:3000",
     },
   },
   resolve: {

@@ -68,14 +68,11 @@ export function getJobViewer(jobId: string | number) {
   });
 }
 
-export function createSceneJob(sceneId: string | number, payload: CreateSceneJobPayload) {
+export function createSceneJob(sceneId: string | number, payload: CreateSceneJobPayload = {}) {
   return request<CreateSceneJobResponse>(`/api/v1/scenes/${encodeURIComponent(String(sceneId))}/jobs`, {
     method: "POST",
     body: {
       pipeline: payload.pipeline ?? "3dgs",
-      imageCount: payload.imageCount,
-      overlap: payload.overlap,
-      iteration: payload.iteration,
     },
     auth: true,
   });
@@ -110,13 +107,13 @@ export async function putVideoToPresignedUrl(
         resolve();
         return;
       }
-      reject(new Error(`S3_UPLOAD_FAILED ${xhr.status} ${xhr.responseText ?? ""}`.trim()));
+      reject(new Error(`FILE_UPLOAD_FAILED ${xhr.status} ${xhr.responseText ?? ""}`.trim()));
     };
 
-    xhr.onerror = () => reject(new Error("S3_UPLOAD_FAILED NETWORK_ERROR"));
-    xhr.ontimeout = () => reject(new Error("S3_UPLOAD_FAILED TIMEOUT"));
+    xhr.onerror = () => reject(new Error("FILE_UPLOAD_FAILED NETWORK_ERROR"));
+    xhr.ontimeout = () => reject(new Error("FILE_UPLOAD_FAILED TIMEOUT"));
     console.log(
-      "[S3_UPLOAD] file",
+      "[FILE_UPLOAD] file",
       file,
       "isFile=",
       file instanceof File,

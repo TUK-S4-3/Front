@@ -252,9 +252,6 @@ export type PostThumbnailCompleteResponse = {
 };
 
 export type CreateSceneJobPayload = {
-  imageCount: number;
-  overlap: number;
-  iteration: number;
   pipeline?: "3dgs";
 };
 
@@ -263,6 +260,7 @@ export type CreateSceneJobResponse = {
   sceneId: string | number;
   status: string;
   batchJobId?: string;
+  runner?: string;
   progressKey?: string;
   statusKey?: string;
 };

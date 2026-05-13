@@ -32,8 +32,8 @@ function mapUploadError(error: unknown) {
   if (message.includes("HTTP 409")) {
     return "이미 완료 처리된 업로드입니다.";
   }
-  if (message.includes("S3_UPLOAD_FAILED")) {
-    return "S3 업로드에 실패했습니다. 잠시 후 다시 시도해 주세요.";
+  if (message.includes("S3_UPLOAD_FAILED") || message.includes("FILE_UPLOAD_FAILED")) {
+    return "파일 업로드에 실패했습니다. 잠시 후 다시 시도해 주세요.";
   }
   return "업로드 중 오류가 발생했습니다. 다시 시도해 주세요.";
 }
@@ -52,7 +52,7 @@ function mapSceneFetchError(error: unknown) {
 
 function stateMessage(state: UploadFlowState, progress: number, sceneId: string) {
   if (state === "presigning") return "업로드 준비 중…";
-  if (state === "uploading") return `S3 업로드 중… ${progress}%`;
+  if (state === "uploading") return `파일 업로드 중… ${progress}%`;
   if (state === "completing") return "업로드 완료 처리 중…";
   if (state === "success" && sceneId) return `업로드 완료 (sceneId: ${sceneId})`;
   return "";
