@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { AlertCircle, ArrowLeft, Camera, HardDrive, Loader2, RefreshCw, Share2 } from "lucide-react";
 import type { JobStatus, JobViewerResponse } from "../api/types";
 import { getPublicPostViewer } from "../api/public";
@@ -12,6 +12,7 @@ import {
   putPostThumbnailToPresignedUrl,
 } from "../api/posts";
 import GaussianSplatViewer, { type GaussianSplatViewerHandle } from "../components/GaussianSplatViewer";
+import PlyCanvasViewer from "../components/PlyCanvasViewer";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 
@@ -22,6 +23,9 @@ function normalizeJobStatus(status: string | null | undefined): JobStatus {
   }
   if (normalized === "processing" || normalized === "running") {
     return "processing";
+  }
+  if (normalized === "waiting_gs" || normalized === "waiting-gs" || normalized === "sfm_done" || normalized === "sfm-done") {
+    return "waiting_gs";
   }
   if (normalized === "failed") {
     return "failed";
@@ -38,6 +42,7 @@ function normalizeJobStatus(status: string | null | undefined): JobStatus {
 function statusLabel(status: JobStatus) {
   if (status === "queued") return "Queued";
   if (status === "processing") return "Processing";
+  if (status === "waiting_gs") return "Waiting GS";
   if (status === "ready") return "Ready";
   if (status === "failed") return "Failed";
   return "Canceled";
@@ -82,6 +87,13 @@ function isViewerReady(viewer: JobViewerResponse | null) {
   return normalizeJobStatus(viewer.status) === "ready";
 }
 
+function isSfmViewer(viewer: JobViewerResponse | null) {
+  return (
+    String(viewer?.viewerKind ?? "").trim().toLowerCase() === "sfm" ||
+    String(viewer?.pipeline ?? "").trim().toLowerCase() === "sfm"
+  );
+}
+
 function stopEventPropagation(event: Event) {
   event.stopPropagation();
   event.stopImmediatePropagation?.();
@@ -109,8 +121,13 @@ const THUMBNAIL_MAX_BYTES = 10 * 1024 * 1024;
 export default function JobViewerPage() {
   const nav = useNavigate();
   const { sceneId, jobId } = useParams();
+  const [searchParams] = useSearchParams();
   const sceneIdText = String(sceneId ?? "");
   const jobIdText = String(jobId ?? "");
+  const requestedViewerKind = useMemo(() => {
+    const normalized = String(searchParams.get("view") ?? "").trim().toLowerCase();
+    return normalized === "sfm" || normalized === "gs" ? normalized : undefined;
+  }, [searchParams]);
 
   const [viewer, setViewer] = useState<JobViewerResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -136,7 +153,7 @@ export default function JobViewerPage() {
 
     setLoading(true);
     try {
-      const response = await getJobViewer(jobIdText);
+      const response = await getJobViewer(jobIdText, { view: requestedViewerKind });
       setViewer(response);
 
       if (sceneIdText && String(response.sceneId) !== sceneIdText) {
@@ -154,7 +171,7 @@ export default function JobViewerPage() {
     } finally {
       setLoading(false);
     }
-  }, [jobIdText, nav, sceneIdText]);
+  }, [jobIdText, nav, requestedViewerKind, sceneIdText]);
 
   useEffect(() => {
     if (!sceneIdText) {
@@ -372,12 +389,16 @@ export default function JobViewerPage() {
             <p className="text-[12px] font-bold uppercase tracking-[0.3em] text-white/60">Loading Viewer Data...</p>
           </div>
         ) : isReady && sceneMatched && viewer?.resultUrl ? (
-          <GaussianSplatViewer
-            key={viewer.jobId}
-            ref={viewerHandleRef}
-            url={viewer.resultUrl}
-            showControlsHint={false}
-          />
+          isSfmViewer(viewer) ? (
+            <PlyCanvasViewer key={viewer.jobId} url={viewer.resultUrl} />
+          ) : (
+            <GaussianSplatViewer
+              key={viewer.jobId}
+              ref={viewerHandleRef}
+              url={viewer.resultUrl}
+              showControlsHint={false}
+            />
+          )
         ) : (
           <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-12 pb-12 pt-44 md:pt-56">
             <div className="mx-auto h-20 w-20 bg-white/10 flex items-center justify-center text-white border border-white/20 rounded-full">

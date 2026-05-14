@@ -3,17 +3,17 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   activateSceneKeyframeSet,
   createSceneJob,
-  createSceneKeyframeSet,
   getSceneJobProgress,
   getSceneJobs,
   getSceneKeyframeSets,
+  runSceneJobGs,
 } from "../api/videos";
 import type { JobProgressMetrics, JobStatus, SceneJob, SceneKeyframeSet } from "../api/types";
 import Layout from "../components/Layout";
 import { Separator } from "../components/ui/separator";
 import {
-  ArrowLeft, CheckCircle2, AlertCircle,
-  Film, HardDrive, ImageIcon, RefreshCw, Loader2, Sparkles
+  ArrowLeft, AlertCircle,
+  HardDrive, RefreshCw, Loader2, Sparkles
 } from "lucide-react";
 
 type JobProgressView = {
@@ -26,6 +26,18 @@ type JobProgressView = {
   metrics: JobProgressMetrics | null;
 };
 
+type PipelineTab = "ks" | "sfm" | "gs";
+type PipelineStepState = "waiting" | "active" | "done" | "failed";
+type PrimaryPipelineAction = "create" | "run-gs" | "viewer" | "none";
+
+type PrimaryPipelineCta = {
+  action: PrimaryPipelineAction;
+  label: string;
+  description: string;
+  disabled: boolean;
+  className: string;
+};
+
 function normalizeJobStatus(status: string | null | undefined): JobStatus {
   const normalized = String(status ?? "").trim().toLowerCase();
   if (normalized === "ready" || normalized === "succeeded" || normalized === "success" || normalized === "done") {
@@ -33,6 +45,9 @@ function normalizeJobStatus(status: string | null | undefined): JobStatus {
   }
   if (normalized === "processing" || normalized === "running") {
     return "processing";
+  }
+  if (normalized === "waiting_gs" || normalized === "waiting-gs" || normalized === "sfm_done" || normalized === "sfm-done") {
+    return "waiting_gs";
   }
   if (normalized === "failed") {
     return "failed";
@@ -49,6 +64,7 @@ function normalizeJobStatus(status: string | null | undefined): JobStatus {
 function statusLabel(status: JobStatus) {
   if (status === "queued") return "Queued";
   if (status === "processing") return "Processing";
+  if (status === "waiting_gs") return "Waiting GS";
   if (status === "ready") return "Ready";
   if (status === "failed") return "Failed";
   return "Canceled";
@@ -67,6 +83,9 @@ function mapCreateJobError(error: unknown) {
   if (message.includes("HTTP 401")) return "로그인이 필요합니다.";
   if (message.includes("HTTP 403")) return "해당 Scene에 접근 권한이 없습니다.";
   if (message.includes("BAD_REQUEST")) return "Job 생성 요청이 올바르지 않습니다.";
+  if (message.includes("JOB_ALREADY_RUNNING")) return "이미 실행 중인 Job입니다.";
+  if (message.includes("SFM_RESULT_REQUIRED")) return "GS 실행에는 먼저 완료된 SfM 결과가 필요합니다.";
+  if (message.includes("GS_ALREADY_READY")) return "이미 GS 결과가 준비된 Job입니다.";
   return "Job 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.";
 }
 
@@ -140,8 +159,8 @@ export default function UploadDetailPage() {
   const [jobProgress, setJobProgress] = useState<JobProgressView | null>(null);
   const [jobsLoading, setJobsLoading] = useState(true);
   const [creatingJob, setCreatingJob] = useState(false);
-  const [creatingKeyframeSet, setCreatingKeyframeSet] = useState(false);
   const [activatingKeyframeSet, setActivatingKeyframeSet] = useState(false);
+  const [activePipelineTab, setActivePipelineTab] = useState<PipelineTab>("ks");
   const [err, setErr] = useState("");
 
   const publicStorageBaseUrl = useMemo(() => {
@@ -161,7 +180,7 @@ export default function UploadDetailPage() {
   );
 
   const fetchJobs = useCallback(async (preferredJobId?: number | null) => {
-    const response = await getSceneJobs(sceneIdText, { limit: 20 });
+    const response = await getSceneJobs(sceneIdText, { limit: 20, pipeline: "3dgs" });
     const nextJobs = Array.isArray(response.jobs) ? response.jobs : [];
     const nextInputVideoKey =
       typeof response.inputVideoKey === "string" && response.inputVideoKey.trim()
@@ -242,16 +261,15 @@ export default function UploadDetailPage() {
     () => keyframeSets.find((item) => String(item.id) === String(selectedKeyframeSetId)) ?? null,
     [keyframeSets, selectedKeyframeSetId]
   );
-  const latestReadySfmJob = useMemo(
-    () =>
-      jobs.find(
-        (job) =>
-          job.pipeline === "sfm" &&
-          normalizeJobStatus(job.status) === "ready" &&
-          Boolean(job.sfmResultKey)
-      ) ?? null,
-    [jobs]
-  );
+  const selectedKeyframeSetIsReady = String(selectedKeyframeSet?.status ?? "").toLowerCase() === "ready";
+  const selectedJobKeyframeSet = selectedJob?.keyframeSet ?? selectedKeyframeSet;
+  const canRunSelectedGs = useMemo(() => {
+    if (!selectedJob) return false;
+    return (
+      selectedJob.canRunGs === true ||
+      (normalizeJobStatus(selectedJob.status) === "waiting_gs" && Boolean(selectedJob.sfmResultKey))
+    );
+  }, [selectedJob]);
 
   const currentProgress = useMemo(() => {
     if (!jobProgress || selectedJobId == null) return null;
@@ -260,6 +278,7 @@ export default function UploadDetailPage() {
   }, [jobProgress, selectedJobId]);
 
   const currentStatus = useMemo(() => {
+    if (selectedJob && normalizeJobStatus(selectedJob.status) === "waiting_gs") return "waiting_gs";
     if (selectedJob && isViewerReadyJob(selectedJob)) return "ready";
     if (currentProgress) return currentProgress.status;
     if (selectedJob) return normalizeJobStatus(selectedJob.status);
@@ -288,7 +307,12 @@ export default function UploadDetailPage() {
         prev.map((job) => (job.id === jobId ? { ...job, status: normalizedStatus } : job))
       );
 
-      if (normalizedStatus === "ready" || normalizedStatus === "failed" || normalizedStatus === "canceled") {
+      if (
+        normalizedStatus === "waiting_gs" ||
+        normalizedStatus === "ready" ||
+        normalizedStatus === "failed" ||
+        normalizedStatus === "canceled"
+      ) {
         await Promise.all([fetchJobs(jobId), fetchKeyframeSets()]);
       }
     },
@@ -333,30 +357,21 @@ export default function UploadDetailPage() {
     };
   }, [selectedJobId, currentStatus, syncJobProgress]);
 
-  const gsSourceJob = useMemo(() => {
-    if (
-      selectedJob?.pipeline === "sfm" &&
-      normalizeJobStatus(selectedJob.status) === "ready" &&
-      selectedJob.sfmResultKey
-    ) {
-      return selectedJob;
-    }
-    return latestReadySfmJob;
-  }, [latestReadySfmJob, selectedJob]);
-
-  const createPipelineJob = async (pipeline: "3dgs" | "sfm" | "gs", sourceJobId?: string | number | null) => {
+  const createPipelineJob = async () => {
     if (!sceneIdText) return;
     setCreatingJob(true);
     setErr("");
     try {
       const created = await createSceneJob(sceneIdText, {
-        pipeline,
-        keyframeSetId: pipeline === "gs" ? null : selectedKeyframeSetId,
-        sourceJobId: sourceJobId ?? null,
+        pipeline: "3dgs",
+        keyframeSetId: selectedKeyframeSetIsReady ? selectedKeyframeSetId : null,
       });
 
       const newJobId = Number(created.jobId);
-      await fetchJobs(Number.isFinite(newJobId) ? newJobId : undefined);
+      await Promise.all([
+        fetchJobs(Number.isFinite(newJobId) ? newJobId : undefined),
+        fetchKeyframeSets(created.keyframeSet?.id ?? null),
+      ]);
       if (Number.isFinite(newJobId)) {
         setSelectedJobId(newJobId);
       }
@@ -371,20 +386,15 @@ export default function UploadDetailPage() {
     }
   };
 
-  const handleCreateJob = () => createPipelineJob("sfm");
-  const handleCreateGsJob = () => createPipelineJob("gs", gsSourceJob?.id ?? null);
-
-  const handleCreateKeyframeSet = async () => {
-    if (!sceneIdText) return;
-    setCreatingKeyframeSet(true);
+  const handleCreateJob = () => createPipelineJob();
+  const handleRunGs = async () => {
+    if (!sceneIdText || selectedJobId == null || !canRunSelectedGs) return;
+    setCreatingJob(true);
     setErr("");
     try {
-      const created = await createSceneKeyframeSet(sceneIdText);
-      await Promise.all([fetchKeyframeSets(created.keyframeSet.id), fetchJobs(Number(created.jobId))]);
-      const newJobId = Number(created.jobId);
-      if (Number.isFinite(newJobId)) {
-        setSelectedJobId(newJobId);
-      }
+      await runSceneJobGs(sceneIdText, selectedJobId);
+      await fetchJobs(selectedJobId);
+      await syncJobProgress(selectedJobId);
     } catch (caught) {
       const message = mapCreateJobError(caught);
       setErr(message);
@@ -392,7 +402,7 @@ export default function UploadDetailPage() {
         nav("/login");
       }
     } finally {
-      setCreatingKeyframeSet(false);
+      setCreatingJob(false);
     }
   };
 
@@ -415,10 +425,40 @@ export default function UploadDetailPage() {
     if (!sceneIdText || selectedJobId == null) return "";
     return `/uploads/${encodeURIComponent(sceneIdText)}/jobs/${encodeURIComponent(String(selectedJobId))}/viewer`;
   }, [sceneIdText, selectedJobId]);
+  const sfmViewerPath = useMemo(() => {
+    return viewerPath ? `${viewerPath}?view=sfm` : "";
+  }, [viewerPath]);
 
   const selectedViewerReady = useMemo(() => isViewerReadyJob(selectedJob), [selectedJob]);
   const selectedPostable = useMemo(() => isPostableJob(selectedJob), [selectedJob]);
   const canOpenViewer = selectedJobId != null && selectedViewerReady;
+  const normalizedSelectedJobStatus = selectedJob ? normalizeJobStatus(selectedJob.status) : "queued";
+  const sfmResultKey = selectedJob?.sfmResultKey ?? selectedJob?.outputs?.sfmResultKey ?? null;
+  const sfmResultUrl = selectedJob?.sfmResultUrl ?? selectedJob?.outputs?.sfmResultUrl ?? null;
+  const gsResultKey = selectedJob?.gaussianSplatKey ?? selectedJob?.outputs?.gaussianSplatKey ?? null;
+  const gsResultUrl = selectedJob?.gaussianSplatUrl ?? selectedJob?.outputs?.gaussianSplatUrl ?? selectedJob?.resultUrl ?? null;
+  const keyframeStatus = String(selectedJobKeyframeSet?.status ?? "").toLowerCase();
+  const keyframeReady = keyframeStatus === "ready";
+  const keyframeCsvUrl = selectedJobKeyframeSet?.selectedFramesCsvKey
+    ? buildPublicVideoUrl(publicStorageBaseUrl, selectedJobKeyframeSet.selectedFramesCsvKey)
+    : "";
+  const keyframeMetricsUrl = selectedJobKeyframeSet?.metricsKey
+    ? buildPublicVideoUrl(publicStorageBaseUrl, selectedJobKeyframeSet.metricsKey)
+    : "";
+  const keyframeConfigUrl = selectedJobKeyframeSet?.configKey
+    ? buildPublicVideoUrl(publicStorageBaseUrl, selectedJobKeyframeSet.configKey)
+    : "";
+  const keyframeLatentUrl = selectedJobKeyframeSet?.latentHtmlUrl
+    ?? (selectedJobKeyframeSet?.latentHtmlKey
+      ? buildPublicVideoUrl(publicStorageBaseUrl, selectedJobKeyframeSet.latentHtmlKey)
+      : "");
+  const gsReady = selectedViewerReady && normalizedSelectedJobStatus === "ready";
+  const sfmReady = Boolean(sfmResultKey) && (
+    canRunSelectedGs ||
+    normalizedSelectedJobStatus === "waiting_gs" ||
+    selectedJob?.viewerKind === "sfm" ||
+    gsReady
+  );
   const progressValue = currentProgress ? normalizeProgress(currentProgress.progress) : 0;
   const progressPercent = `${(progressValue * 100).toFixed(0)}%`;
   const progressFixed = progressValue.toFixed(2);
@@ -429,6 +469,124 @@ export default function UploadDetailPage() {
     const isRunning = currentProgress.status === "queued" || currentProgress.status === "processing";
     return isRunning && Date.now() - updatedAtMs > 10 * 60 * 1000;
   }, [currentProgress]);
+  const pipelineStage = String(currentProgress?.stage ?? selectedJob?.stage ?? "").toUpperCase();
+  const pipelineSteps = useMemo(() => {
+    const hasSelectedJob = Boolean(selectedJob);
+    const isRunning = hasSelectedJob && (currentStatus === "queued" || currentStatus === "processing");
+    const isFailed = hasSelectedJob && (currentStatus === "failed" || currentStatus === "canceled");
+    const isKsStage = pipelineStage.includes("IMAGESET") || pipelineStage.includes("KEYFRAME");
+    const isSfmStage = pipelineStage.includes("SFM") || pipelineStage.includes("UNDISTORT");
+    const isGsStage = pipelineStage.includes("GS") || pipelineStage.includes("TRAINING");
+    const ksDone = hasSelectedJob && (keyframeReady || sfmReady || gsReady || currentStatus === "waiting_gs" || isSfmStage || isGsStage);
+    const sfmDone = hasSelectedJob && (sfmReady || gsReady || currentStatus === "waiting_gs" || isGsStage);
+
+    return [
+      {
+        id: "ks" as PipelineTab,
+        label: "KS",
+        state: (isFailed && !ksDone ? "failed" : ksDone ? "done" : isRunning && (isKsStage || !ksDone) ? "active" : "waiting") as PipelineStepState,
+        detail: selectedJobKeyframeSet
+          ? `v${selectedJobKeyframeSet.version} · ${formatAutoParameterValue(selectedJobKeyframeSet.selectedFrameCount)} frames`
+          : "자동 생성",
+      },
+      {
+        id: "sfm" as PipelineTab,
+        label: "SfM",
+        state: (isFailed && ksDone && !sfmDone ? "failed" : sfmDone ? "done" : isRunning && isSfmStage ? "active" : "waiting") as PipelineStepState,
+        detail: sfmDone ? "Point cloud ready" : "KS 완료 후 실행",
+      },
+      {
+        id: "gs" as PipelineTab,
+        label: "GS",
+        state: (isFailed && sfmDone && !gsReady ? "failed" : gsReady ? "done" : isRunning && isGsStage ? "active" : "waiting") as PipelineStepState,
+        detail: gsReady ? "Viewer ready" : canRunSelectedGs ? "사용자 승인 대기" : "SfM 완료 후 실행",
+      },
+    ];
+  }, [canRunSelectedGs, currentStatus, gsReady, keyframeReady, pipelineStage, selectedJob, selectedJobKeyframeSet, sfmReady]);
+  const primaryPipelineCta = useMemo<PrimaryPipelineCta>(() => {
+    const primaryClass = "bg-[#1A3C34] text-[#F2F0EB] hover:bg-[#D95F39]";
+    const outlineClass = "border border-[#1A3C34] text-[#1A3C34] hover:bg-[#1A3C34] hover:text-[#F2F0EB]";
+    const mutedClass = "border border-[#1A3C34]/20 text-[#1A3C34]/45 bg-[#F2F0EB]";
+    const dangerClass = "bg-[#D95F39] text-white hover:bg-[#1A3C34]";
+
+    if (!selectedJob) {
+      return {
+        action: "create",
+        label: creatingJob ? "시작 중" : "파이프라인 시작",
+        description: selectedKeyframeSetIsReady && selectedKeyframeSet
+          ? `선택된 KS v${selectedKeyframeSet.version} 기준으로 KS와 SfM을 실행합니다.`
+          : "새 KS 버전을 자동 생성한 뒤 SfM까지 실행합니다.",
+        disabled: creatingJob,
+        className: primaryClass,
+      };
+    }
+
+    if (currentStatus === "queued" || currentStatus === "processing") {
+      return {
+        action: "none",
+        label: "처리 중",
+        description: currentProgress?.stage ? `${currentProgress.stage} 단계가 진행 중입니다.` : "KS 또는 SfM 처리가 진행 중입니다.",
+        disabled: true,
+        className: mutedClass,
+      };
+    }
+
+    if (currentStatus === "waiting_gs" || canRunSelectedGs) {
+      return {
+        action: "run-gs",
+        label: creatingJob ? "GS 시작 중" : "GS 진행",
+        description: "SfM 결과를 확인한 뒤 같은 Job에서 GS 학습을 시작합니다.",
+        disabled: creatingJob || !canRunSelectedGs,
+        className: primaryClass,
+      };
+    }
+
+    if (canOpenViewer) {
+      return {
+        action: "viewer",
+        label: "결과 보기",
+        description: "완료된 3D 결과를 뷰어에서 확인합니다.",
+        disabled: false,
+        className: outlineClass,
+      };
+    }
+
+    if (currentStatus === "failed" || currentStatus === "canceled") {
+      return {
+        action: "create",
+        label: creatingJob ? "다시 시작 중" : "다시 시도",
+        description: "새 Job을 생성해 KS부터 파이프라인을 다시 실행합니다.",
+        disabled: creatingJob,
+        className: dangerClass,
+      };
+    }
+
+    return {
+      action: "none",
+      label: "대기 중",
+      description: "현재 Job 상태를 확인하고 있습니다.",
+      disabled: true,
+      className: mutedClass,
+    };
+  }, [canOpenViewer, canRunSelectedGs, creatingJob, currentProgress?.stage, currentStatus, selectedJob, selectedKeyframeSet, selectedKeyframeSetIsReady]);
+  const currentStageLabel = currentProgress?.stage || selectedJob?.stage || "PENDING";
+  const selectedJobCreatedAt = formatDateLabel(selectedJob?.createdAt);
+  const selectedJobEndedAt = formatDateLabel(selectedJob?.endedAt ?? selectedJob?.finishedAt);
+
+  const handlePrimaryPipelineAction = () => {
+    if (primaryPipelineCta.disabled) return;
+    if (primaryPipelineCta.action === "create") {
+      void handleCreateJob();
+      return;
+    }
+    if (primaryPipelineCta.action === "run-gs") {
+      void handleRunGs();
+      return;
+    }
+    if (primaryPipelineCta.action === "viewer" && canOpenViewer) {
+      nav(viewerPath);
+    }
+  };
 
   if (jobsLoading) {
     return (
@@ -553,65 +711,308 @@ export default function UploadDetailPage() {
               </div>
 
               <div className="bg-white border border-[#1A3C34]/10 p-10 space-y-6">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-[12px] font-black uppercase tracking-[0.3em] text-[#1A3C34]/30">
-                    Selected Job Runtime
-                  </h3>
-                  <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#1A3C34]/50">
-                    Job {selectedJobId ?? "-"}
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <h3 className="text-[12px] font-black uppercase tracking-[0.3em] text-[#1A3C34]/30">
+                      Job Pipeline
+                    </h3>
+                    <p className="mt-2 text-[12px] font-medium leading-relaxed text-[#1A3C34]/55">
+                      {selectedJob
+                        ? `Job ${selectedJob.id} · ${selectedJobCreatedAt}`
+                        : "파이프라인을 시작하면 KS와 SfM을 먼저 수행합니다."}
+                    </p>
+                  </div>
+                  {selectedJob ? (
+                    <StatusChip status={currentStatus} />
+                  ) : (
+                    <span className="w-fit px-3 py-1 text-[9px] font-black uppercase tracking-[0.14em] bg-[#F2F0EB] text-[#1A3C34]/45">
+                      New
+                    </span>
+                  )}
+                </div>
+
+                <div className="border border-[#1A3C34]/10 bg-[#F2F0EB]/35 p-5 space-y-5">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <div className="text-[10px] font-black uppercase tracking-[0.18em] text-[#1A3C34]/40">
+                        Current Stage
+                      </div>
+                      <div className="mt-1 break-words text-lg font-black text-[#1A3C34]">
+                        {currentStageLabel}
+                      </div>
+                    </div>
+                    <div className="w-fit border border-[#1A3C34]/10 bg-white px-3 py-2 text-[11px] font-black uppercase tracking-[0.16em] text-[#1A3C34]">
+                      {progressPercent}
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-3">
+                    {pipelineSteps.map((step, index) => (
+                      <PipelineStageCard
+                        key={step.label}
+                        index={index + 1}
+                        label={step.label}
+                        state={step.state}
+                        detail={step.detail}
+                        active={activePipelineTab === step.id}
+                        onClick={() => setActivePipelineTab(step.id)}
+                      />
+                    ))}
+                  </div>
+
+                  <div className="border-l-2 border-[#D95F39] bg-white px-4 py-3">
+                    <div className="text-[10px] font-black uppercase tracking-[0.18em] text-[#D95F39]">
+                      Next Action
+                    </div>
+                    <p className="mt-1 text-[12px] font-medium leading-relaxed text-[#1A3C34]/70">
+                      {primaryPipelineCta.description}
+                    </p>
                   </div>
                 </div>
 
-                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                  <ParameterCard label="Pipeline" value={selectedJob?.pipeline ?? "3dgs"} />
-                  <ParameterCard
-                    label="Image Set"
-                    value={formatAutoParameterValue(currentProgress?.metrics?.frameCount ?? selectedJob?.imageCount)}
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <SummaryMetric label="Status" value={selectedJob ? statusLabel(currentStatus) : "New"} />
+                  <SummaryMetric
+                    label="Keyframes"
+                    value={selectedJobKeyframeSet ? `v${selectedJobKeyframeSet.version} · ${formatAutoParameterValue(selectedJobKeyframeSet.selectedFrameCount)}` : "자동 생성"}
                   />
-                  <ParameterCard label="Overlap" value={formatAutoParameterValue(selectedJob?.overlap)} />
-                  <ParameterCard
-                    label="Iteration"
-                    value={formatAutoParameterValue(currentProgress?.metrics?.itersRequested ?? selectedJob?.iteration)}
+                  <SummaryMetric
+                    label="Updated"
+                    value={currentProgress?.updatedAt ? formatDateLabel(currentProgress.updatedAt) : selectedJobEndedAt !== "-" ? selectedJobEndedAt : selectedJobCreatedAt}
                   />
                 </div>
 
-                <p className="text-[12px] font-medium text-[#1A3C34]/55">
-                  이미지셋과 Overlap은 Keyframe Selection 결과 기준으로 자동 산출됩니다.
-                </p>
+                {activePipelineTab === "ks" && (
+                  <div className="space-y-5">
+                    <div className="grid gap-4 sm:grid-cols-3">
+                      <ParameterCard
+                        label="Version"
+                        value={selectedJobKeyframeSet ? `v${selectedJobKeyframeSet.version}` : "-"}
+                      />
+                      <ParameterCard
+                        label="Status"
+                        value={selectedJobKeyframeSet ? (keyframeReady ? "Ready" : keyframeStatus || "-") : "-"}
+                      />
+                      <ParameterCard
+                        label="Frames"
+                        value={formatAutoParameterValue(selectedJobKeyframeSet?.selectedFrameCount)}
+                      />
+                    </div>
+
+                    <div className="border border-[#1A3C34]/10 bg-[#F2F0EB]/35 p-4 space-y-3">
+                      <div className="text-[10px] font-black uppercase tracking-[0.18em] text-[#1A3C34]/45">
+                        KS Outputs
+                      </div>
+                      <div className="flex flex-wrap gap-3">
+                        {keyframeReady && keyframeLatentUrl && (
+                          <ArtifactLink href={keyframeLatentUrl} label="Latent Space" />
+                        )}
+                        {keyframeCsvUrl && (
+                          <ArtifactLink href={keyframeCsvUrl} label="CSV" />
+                        )}
+                        {keyframeMetricsUrl && (
+                          <ArtifactLink href={keyframeMetricsUrl} label="Metrics" />
+                        )}
+                        {keyframeConfigUrl && (
+                          <ArtifactLink href={keyframeConfigUrl} label="Config" />
+                        )}
+                      </div>
+                    </div>
+
+                    <details className="border border-[#1A3C34]/10 bg-white p-4">
+                      <summary className="cursor-pointer list-none text-[10px] font-black uppercase tracking-[0.18em] text-[#1A3C34]/45">
+                        Advanced Details
+                      </summary>
+                      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                        <KeyValuePanel label="Storage Prefix" value={selectedJobKeyframeSet?.storagePrefix ?? "-"} />
+                        <KeyValuePanel label="Selected Frames" value={selectedJobKeyframeSet?.selectedFramesPrefix ?? "-"} />
+                      </div>
+                    </details>
+
+                    {selectedJobKeyframeSet?.errorMessage && (
+                      <div className="border border-[#D95F39]/20 bg-[#D95F39]/10 p-4 text-[12px] font-bold text-[#D95F39]">
+                        {selectedJobKeyframeSet.errorMessage}
+                      </div>
+                    )}
+                    {selectedJobKeyframeSet?.frameIndexPlotUrl ? (
+                      <img
+                        src={selectedJobKeyframeSet.frameIndexPlotUrl}
+                        alt={`KS v${selectedJobKeyframeSet.version} frame index comparison`}
+                        className="w-full border border-[#1A3C34]/10 bg-[#F2F0EB]"
+                      />
+                    ) : (
+                      <div className="border border-[#1A3C34]/10 bg-[#F2F0EB] p-5 text-[11px] font-bold uppercase tracking-[0.14em] text-[#1A3C34]/45">
+                        선택된 Job에 연결된 KS 시각 자료가 없습니다.
+                      </div>
+                    )}
+                    {selectedJobKeyframeSet?.timelineComparisonUrl && (
+                      <video
+                        src={selectedJobKeyframeSet.timelineComparisonUrl}
+                        controls
+                        preload="metadata"
+                        className="w-full border border-[#1A3C34]/10 bg-black"
+                      />
+                    )}
+                  </div>
+                )}
+
+                {activePipelineTab === "sfm" && (
+                  <div className="space-y-5">
+                    <div className="grid gap-4 sm:grid-cols-3">
+                      <ParameterCard label="Status" value={sfmReady ? "Ready" : "Waiting"} />
+                      <ParameterCard
+                        label="Viewer"
+                        value={selectedJob?.viewerKind === "sfm" || sfmReady ? "Point Cloud" : "-"}
+                      />
+                      <ParameterCard label="Stage" value={selectedJob?.stage ?? currentProgress?.stage ?? "-"} />
+                    </div>
+                    <div className="border border-[#1A3C34]/10 bg-[#F2F0EB]/45 p-5 space-y-3">
+                      <div className="text-[10px] font-black uppercase tracking-[0.18em] text-[#1A3C34]/45">
+                        SfM Result
+                      </div>
+                      <div className="text-[12px] font-medium leading-relaxed text-[#1A3C34]/65">
+                        {sfmReady ? "포인트 클라우드 결과가 준비되었습니다." : "아직 SfM 포인트 클라우드가 생성되지 않았습니다."}
+                      </div>
+                      {sfmReady && (
+                        <div className="flex flex-wrap gap-3">
+                          <button
+                            type="button"
+                            onClick={() => nav(sfmViewerPath)}
+                            className="inline-flex h-9 items-center border border-[#1A3C34] bg-[#1A3C34] px-3 text-[10px] font-black uppercase tracking-[0.14em] text-[#F2F0EB] hover:bg-[#D95F39] hover:border-[#D95F39]"
+                          >
+                            View Point Cloud
+                          </button>
+                          {sfmResultUrl && (
+                            <a
+                              href={sfmResultUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex h-9 items-center border border-[#1A3C34] px-3 text-[10px] font-black uppercase tracking-[0.14em] text-[#1A3C34] hover:bg-[#1A3C34] hover:text-[#F2F0EB]"
+                            >
+                              Download PLY
+                            </a>
+                          )}
+                        </div>
+                      )}
+                      {sfmResultKey && (
+                        <details className="pt-2">
+                          <summary className="cursor-pointer list-none text-[10px] font-black uppercase tracking-[0.16em] text-[#1A3C34]/40">
+                            File Details
+                          </summary>
+                          <div className="mt-3 break-all border border-[#1A3C34]/10 bg-white p-3 text-[11px] font-medium text-[#1A3C34]/60">
+                            {sfmResultKey}
+                          </div>
+                        </details>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {activePipelineTab === "gs" && (
+                  <div className="space-y-5">
+                    <div className="grid gap-4 sm:grid-cols-3">
+                      <ParameterCard label="Status" value={gsReady ? "Ready" : canRunSelectedGs ? "Runnable" : "Waiting"} />
+                      <ParameterCard label="Iterations" value={formatAutoParameterValue(selectedJob?.iteration)} />
+                      <ParameterCard label="Postable" value={selectedPostable ? "Yes" : "No"} />
+                    </div>
+                    <div className="border border-[#1A3C34]/10 bg-[#F2F0EB]/45 p-5 space-y-3">
+                      <div className="text-[10px] font-black uppercase tracking-[0.18em] text-[#1A3C34]/45">
+                        GS Result
+                      </div>
+                      <div className="text-[12px] font-medium leading-relaxed text-[#1A3C34]/65">
+                        {gsReady ? "Gaussian Splatting 결과가 준비되었습니다." : "GS 결과는 SfM 완료 후 실행할 수 있습니다."}
+                      </div>
+                      {gsReady && gsResultUrl && (
+                        <a
+                          href={gsResultUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex h-9 items-center border border-[#D95F39] px-3 text-[10px] font-black uppercase tracking-[0.14em] text-[#D95F39] hover:bg-[#D95F39] hover:text-white"
+                        >
+                          Open Result
+                        </a>
+                      )}
+                      {gsReady && gsResultKey && (
+                        <details className="pt-2">
+                          <summary className="cursor-pointer list-none text-[10px] font-black uppercase tracking-[0.16em] text-[#1A3C34]/40">
+                            File Details
+                          </summary>
+                          <div className="mt-3 break-all border border-[#1A3C34]/10 bg-white p-3 text-[11px] font-medium text-[#1A3C34]/60">
+                            {gsResultKey}
+                          </div>
+                        </details>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
 
             </div>
 
             <div className="lg:col-span-4 space-y-8">
               <div className="bg-white border border-[#1A3C34]/10 p-10 space-y-10">
-                <div className="space-y-5">
+                <div className="space-y-6">
                   <div className="flex items-center justify-between gap-3">
                     <h4 className="text-[12px] font-black uppercase tracking-[0.4em] text-[#1A3C34]">
-                      Keyframes
+                      Pipeline Job
                     </h4>
-                    <button
-                      type="button"
-                      onClick={handleCreateKeyframeSet}
-                      disabled={creatingKeyframeSet}
-                      className="h-9 px-3 bg-[#1A3C34] text-[#F2F0EB] text-[9px] font-black uppercase tracking-[0.14em] hover:bg-[#D95F39] transition-colors disabled:opacity-60"
-                    >
-                      {creatingKeyframeSet ? "Running" : "Rerun KS"}
-                    </button>
+                    {selectedJob ? (
+                      <StatusChip status={currentStatus} />
+                    ) : (
+                      <span className="px-3 py-1 text-[9px] font-black uppercase tracking-[0.14em] bg-[#F2F0EB] text-[#1A3C34]/45">
+                        New
+                      </span>
+                    )}
                   </div>
 
-                  {keyframeSets.length === 0 ? (
-                    <div className="border border-[#1A3C34]/10 bg-[#F2F0EB] p-4 text-[11px] font-bold text-[#1A3C34]/45 uppercase tracking-[0.14em]">
-                      아직 생성된 KS 버전이 없습니다. Job 생성 시 자동 생성됩니다.
+                  <div className="border border-[#1A3C34]/10 bg-[#F2F0EB]/35 px-4 py-3">
+                    <div className="text-[10px] font-black uppercase tracking-[0.16em] text-[#1A3C34]/40">
+                      Selected Job
+                    </div>
+                    <div className="mt-1 text-[13px] font-black text-[#1A3C34]">
+                      {selectedJobId != null ? `Job ${selectedJobId}` : "New Job"}
+                    </div>
+                    <div className="mt-1 truncate text-[11px] font-medium text-[#1A3C34]/55">
+                      {currentStageLabel}
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handlePrimaryPipelineAction}
+                    disabled={primaryPipelineCta.disabled}
+                    className={`w-full h-12 text-[11px] font-black uppercase tracking-[0.2em] transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${primaryPipelineCta.className}`}
+                  >
+                    {primaryPipelineCta.label}
+                  </button>
+
+                  <p className="text-[11px] font-medium text-[#1A3C34]/50 leading-relaxed">
+                    {primaryPipelineCta.description}
+                  </p>
+                </div>
+
+                <Separator className="bg-[#1A3C34]/10" />
+
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <h5 className="text-[11px] font-black uppercase tracking-[0.2em] text-[#1A3C34]/60">Job History</h5>
+                    <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#1A3C34]/35">
+                      {jobs.length} jobs
+                    </span>
+                  </div>
+                  {jobs.length === 0 ? (
+                    <div className="text-[11px] font-bold text-[#1A3C34]/35 uppercase tracking-[0.16em]">
+                      생성된 Job이 없습니다.
                     </div>
                   ) : (
-                    <div className="space-y-2">
-                      {keyframeSets.map((item) => {
-                        const active = String(item.id) === String(selectedKeyframeSetId);
+                    <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
+                      {jobs.map((job) => {
+                        const active = selectedJobId === job.id;
                         return (
                           <button
-                            key={String(item.id)}
+                            key={job.id}
                             type="button"
-                            onClick={() => setSelectedKeyframeSetId(item.id)}
+                            onClick={() => setSelectedJobId(job.id)}
                             className={`w-full text-left border px-4 py-3 transition-colors ${
                               active
                                 ? "border-[#D95F39] bg-[#D95F39]/10"
@@ -620,24 +1021,98 @@ export default function UploadDetailPage() {
                           >
                             <div className="flex items-center justify-between gap-3">
                               <span className="text-[11px] font-black uppercase tracking-[0.18em] text-[#1A3C34]">
-                                KS v{item.version}
+                                Job {job.id}
                               </span>
-                              <span className="text-[9px] font-black uppercase tracking-[0.14em] text-[#1A3C34]/55">
-                                {item.active ? "Active" : item.status}
-                              </span>
+                              <StatusChip status={normalizeJobStatus(job.status)} />
                             </div>
-                            <div className="mt-2 text-[10px] text-[#1A3C34]/45 font-bold uppercase tracking-[0.12em]">
-                              Frames {item.selectedFrameCount ?? 0} · {formatDateLabel(item.createdAt)}
+                            <div className="mt-2 text-[10px] text-[#1A3C34]/45 font-bold uppercase tracking-[0.16em]">
+                              {new Date(job.createdAt).toLocaleString("ko-KR")}
+                            </div>
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              {job.pipeline && (
+                                <span className="px-2 py-1 text-[9px] font-black uppercase tracking-[0.14em] bg-[#F2F0EB] text-[#1A3C34]/55">
+                                  {job.pipeline}
+                                </span>
+                              )}
+                              {isViewerReadyJob(job) && (
+                                <span className="px-2 py-1 text-[9px] font-black uppercase tracking-[0.14em] bg-[#1A3C34] text-[#F2F0EB]">
+                                  Viewer Ready
+                                </span>
+                              )}
+                              {(job.canRunGs || normalizeJobStatus(job.status) === "waiting_gs") && (
+                                <span className="px-2 py-1 text-[9px] font-black uppercase tracking-[0.14em] border border-[#1A3C34] text-[#1A3C34]">
+                                  GS Ready
+                                </span>
+                              )}
+                              {isPostableJob(job) && (
+                                <span className="px-2 py-1 text-[9px] font-black uppercase tracking-[0.14em] bg-[#D95F39] text-white">
+                                  Postable
+                                </span>
+                              )}
+                              {job.alreadyPosted && (
+                                <span className="px-2 py-1 text-[9px] font-black uppercase tracking-[0.14em] border border-[#D95F39] text-[#D95F39]">
+                                  Posted
+                                </span>
+                              )}
                             </div>
                           </button>
                         );
                       })}
                     </div>
                   )}
+                </div>
 
-                  {selectedKeyframeSet && (
-                    <div className="space-y-4 border border-[#1A3C34]/10 p-4">
-                      <div className="flex items-center justify-between gap-3">
+                <Separator className="bg-[#1A3C34]/10" />
+
+                <details className="group">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
+                    <span className="text-[11px] font-black uppercase tracking-[0.2em] text-[#1A3C34]/60">
+                      Keyframe Versions
+                    </span>
+                    <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#1A3C34]/35">
+                      {keyframeSets.length} versions
+                    </span>
+                  </summary>
+
+                  <div className="mt-5 space-y-3">
+                    {keyframeSets.length === 0 ? (
+                      <div className="border border-[#1A3C34]/10 bg-[#F2F0EB] p-4 text-[11px] font-bold text-[#1A3C34]/45 uppercase tracking-[0.14em]">
+                        첫 Job 생성 시 같은 Job에서 KS가 자동 생성됩니다.
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {keyframeSets.map((item) => {
+                          const active = String(item.id) === String(selectedKeyframeSetId);
+                          return (
+                            <button
+                              key={String(item.id)}
+                              type="button"
+                              onClick={() => setSelectedKeyframeSetId(item.id)}
+                              className={`w-full text-left border px-4 py-3 transition-colors ${
+                                active
+                                  ? "border-[#D95F39] bg-[#D95F39]/10"
+                                  : "border-[#1A3C34]/10 hover:border-[#1A3C34]/25 bg-white"
+                              }`}
+                            >
+                              <div className="flex items-center justify-between gap-3">
+                                <span className="text-[11px] font-black uppercase tracking-[0.18em] text-[#1A3C34]">
+                                  KS v{item.version}
+                                </span>
+                                <span className="text-[9px] font-black uppercase tracking-[0.14em] text-[#1A3C34]/55">
+                                  {item.active ? "Active" : item.status}
+                                </span>
+                              </div>
+                              <div className="mt-2 text-[10px] text-[#1A3C34]/45 font-bold uppercase tracking-[0.12em]">
+                                Frames {item.selectedFrameCount ?? 0} · {formatDateLabel(item.createdAt)}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {selectedKeyframeSet && (
+                      <div className="flex items-center justify-between gap-3 border border-[#1A3C34]/10 px-4 py-3">
                         <div className="text-[10px] font-black uppercase tracking-[0.16em] text-[#1A3C34]/55">
                           Selected KS v{selectedKeyframeSet.version}
                         </div>
@@ -650,170 +1125,11 @@ export default function UploadDetailPage() {
                           {selectedKeyframeSet.active ? "Active" : "Set Active"}
                         </button>
                       </div>
-
-                      {selectedKeyframeSet.frameIndexPlotUrl ? (
-                        <div className="space-y-2">
-                          <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.14em] text-[#1A3C34]/50">
-                            <ImageIcon size={13} /> Frame Index
-                          </div>
-                          <img
-                            src={selectedKeyframeSet.frameIndexPlotUrl}
-                            alt={`KS v${selectedKeyframeSet.version} frame index comparison`}
-                            className="w-full border border-[#1A3C34]/10 bg-[#F2F0EB]"
-                          />
-                        </div>
-                      ) : null}
-
-                      {selectedKeyframeSet.timelineComparisonUrl ? (
-                        <div className="space-y-2">
-                          <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.14em] text-[#1A3C34]/50">
-                            <Film size={13} /> Timeline
-                          </div>
-                          <video
-                            src={selectedKeyframeSet.timelineComparisonUrl}
-                            controls
-                            preload="metadata"
-                            className="w-full border border-[#1A3C34]/10 bg-black"
-                          />
-                        </div>
-                      ) : null}
-                    </div>
-                  )}
-                </div>
-
-                <Separator className="bg-[#1A3C34]/10" />
-
-                <h4 className="text-[12px] font-black uppercase tracking-[0.4em] text-[#1A3C34]">Create Job</h4>
-
-                <div className="space-y-5">
-                  <button
-                    type="button"
-                    onClick={handleCreateJob}
-                    disabled={creatingJob}
-                    className="w-full h-12 bg-[#1A3C34] text-[#F2F0EB] text-[11px] font-black uppercase tracking-[0.2em] hover:bg-[#D95F39] transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-                  >
-                    {creatingJob ? "Creating..." : "Create SfM Job"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleCreateGsJob}
-                    disabled={creatingJob || !gsSourceJob}
-                    className="w-full h-12 border border-[#1A3C34] text-[#1A3C34] text-[11px] font-black uppercase tracking-[0.2em] hover:bg-[#1A3C34] hover:text-[#F2F0EB] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    {gsSourceJob ? `Create GS from Job ${gsSourceJob.id}` : "GS Needs Ready SfM"}
-                  </button>
-                  <div className="text-[11px] font-medium text-[#1A3C34]/50 leading-relaxed">
-                    선택된 KS 버전{selectedKeyframeSet ? ` v${selectedKeyframeSet.version}` : ""}으로 SfM을 먼저 생성하고, READY 상태의 SfM job으로 GS를 실행합니다.
+                    )}
                   </div>
-                </div>
-
-                <Separator className="bg-[#1A3C34]/10" />
-
-                <div className="space-y-3">
-                  <h5 className="text-[11px] font-black uppercase tracking-[0.2em] text-[#1A3C34]/60">Jobs</h5>
-                  {jobs.length === 0 ? (
-                    <div className="text-[11px] font-bold text-[#1A3C34]/35 uppercase tracking-[0.16em]">
-                      생성된 Job이 없습니다.
-                    </div>
-                  ) : (
-                    jobs.map((job) => {
-                      const active = selectedJobId === job.id;
-                      return (
-                        <button
-                          key={job.id}
-                          type="button"
-                          onClick={() => setSelectedJobId(job.id)}
-                          className={`w-full text-left border px-4 py-3 transition-colors ${
-                            active
-                              ? "border-[#D95F39] bg-[#D95F39]/10"
-                              : "border-[#1A3C34]/10 hover:border-[#1A3C34]/25 bg-white"
-                          }`}
-                        >
-                          <div className="flex items-center justify-between gap-3">
-                            <span className="text-[11px] font-black uppercase tracking-[0.18em] text-[#1A3C34]">
-                              Job {job.id}
-                            </span>
-                            <StatusChip status={normalizeJobStatus(job.status)} />
-                          </div>
-                          <div className="mt-2 text-[10px] text-[#1A3C34]/45 font-bold uppercase tracking-[0.16em]">
-                            {new Date(job.createdAt).toLocaleString("ko-KR")}
-                          </div>
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            {job.pipeline && (
-                              <span className="px-2 py-1 text-[9px] font-black uppercase tracking-[0.14em] bg-[#F2F0EB] text-[#1A3C34]/55">
-                                {job.pipeline}
-                              </span>
-                            )}
-                            {isViewerReadyJob(job) && (
-                              <span className="px-2 py-1 text-[9px] font-black uppercase tracking-[0.14em] bg-[#1A3C34] text-[#F2F0EB]">
-                                Viewer Ready
-                              </span>
-                            )}
-                            {isPostableJob(job) && (
-                              <span className="px-2 py-1 text-[9px] font-black uppercase tracking-[0.14em] bg-[#D95F39] text-white">
-                                Postable
-                              </span>
-                            )}
-                            {job.alreadyPosted && (
-                              <span className="px-2 py-1 text-[9px] font-black uppercase tracking-[0.14em] border border-[#D95F39] text-[#D95F39]">
-                                Posted
-                              </span>
-                            )}
-                          </div>
-                        </button>
-                      );
-                    })
-                  )}
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!canOpenViewer) return;
-                    nav(viewerPath);
-                  }}
-                  disabled={!canOpenViewer}
-                  className="w-full h-12 border border-[#1A3C34] text-[#1A3C34] text-[11px] font-black uppercase tracking-[0.2em] hover:bg-[#1A3C34] hover:text-[#F2F0EB] transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-[#1A3C34]"
-                >
-                  {canOpenViewer ? "Open 3D Viewer" : "Viewer Available When Viewer Ready"}
-                </button>
+                </details>
               </div>
 
-              <div className="bg-[#1A3C34] p-10 text-[#F2F0EB] space-y-6">
-                <div className="flex items-center gap-3 text-[#D95F39]">
-                  <CheckCircle2 size={18} />
-                  <span className="text-[10px] font-black uppercase tracking-[0.2em]">Job Snapshot</span>
-                </div>
-                <p className="text-[13px] leading-relaxed opacity-70 font-medium">
-                  Current status: <span className="text-[#F2F0EB] font-bold">{statusLabel(currentStatus)}</span>
-                </p>
-                <div className="text-[11px] opacity-70 font-medium space-y-1">
-                  <div>Job ID: {selectedJobId ?? "-"}</div>
-                  <div>Pipeline: {selectedJob?.pipeline ?? "3dgs"}</div>
-                  <div>Viewer Ready: {selectedViewerReady ? "yes" : "no"}</div>
-                  <div>Postable: {selectedPostable ? "yes" : "no"}</div>
-                  <div>Already Posted: {selectedJob?.alreadyPosted ? "yes" : "no"}</div>
-                  <div>Result Exists: {selectedJob ? (selectedJob.resultExists ? "yes" : "no") : "-"}</div>
-                  <div>Created At: {formatDateLabel(selectedJob?.createdAt)}</div>
-                  <div>Ended At: {formatDateLabel(selectedJob?.endedAt ?? selectedJob?.finishedAt)}</div>
-                </div>
-                <div className="text-[11px] opacity-70 font-medium space-y-1">
-                  <div>Image Set: {formatAutoParameterValue(currentProgress?.metrics?.frameCount ?? selectedJob?.imageCount)}</div>
-                  <div>Overlap: {formatAutoParameterValue(selectedJob?.overlap)}</div>
-                  <div>Iteration: {formatAutoParameterValue(currentProgress?.metrics?.itersRequested ?? selectedJob?.iteration)}</div>
-                </div>
-                {currentProgress?.metrics && (
-                  <div className="text-[11px] opacity-70 font-medium space-y-1">
-                    <div>imgRequested: {currentProgress.metrics.imgRequested ?? "-"}</div>
-                    <div>frameCount: {currentProgress.metrics.frameCount ?? "-"}</div>
-                    <div>iters: {currentProgress.metrics.iter ?? 0}/{currentProgress.metrics.iters ?? "-"}</div>
-                  </div>
-                )}
-                <p className="text-[11px] opacity-60 font-medium leading-relaxed">
-                  게시 기준은 선택된 job의 <span className="font-bold text-[#F2F0EB]">postable</span> 값입니다.
-                  viewer 진입 기준은 <span className="font-bold text-[#F2F0EB]">viewerReady</span> 값을 우선 사용합니다.
-                </p>
-              </div>
             </div>
           </div>
         </div>
@@ -826,6 +1142,7 @@ function StatusChip({ status }: { status: JobStatus }) {
   const config: Record<JobStatus, { label: string; className: string }> = {
     queued: { label: "Queued", className: "bg-[#F2F0EB] text-[#1A3C34]/45" },
     processing: { label: "Processing", className: "border border-[#1A3C34] text-[#1A3C34] animate-pulse" },
+    waiting_gs: { label: "Waiting GS", className: "border border-[#1A3C34] text-[#1A3C34]" },
     ready: { label: "Ready", className: "bg-[#1A3C34] text-[#F2F0EB]" },
     failed: { label: "Failed", className: "bg-[#D95F39] text-white" },
     canceled: { label: "Canceled", className: "border border-[#D95F39] text-[#D95F39]" },
@@ -834,11 +1151,116 @@ function StatusChip({ status }: { status: JobStatus }) {
   return <span className={`px-3 py-1 text-[9px] font-black uppercase tracking-[0.14em] ${item.className}`}>{item.label}</span>;
 }
 
+function PipelineStageCard({
+  index,
+  label,
+  state,
+  detail,
+  active,
+  onClick,
+}: {
+  index: number;
+  label: string;
+  state: PipelineStepState;
+  detail: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  const config: Record<PipelineStepState, { label: string; dotClassName: string; cardClassName: string; textClassName: string }> = {
+    waiting: {
+      label: "Waiting",
+      dotClassName: "border border-[#1A3C34]/25 bg-white",
+      cardClassName: "border-[#1A3C34]/10 bg-white",
+      textClassName: "text-[#1A3C34]/40",
+    },
+    active: {
+      label: "Active",
+      dotClassName: "bg-[#D95F39] animate-pulse",
+      cardClassName: "border-[#D95F39]/40 bg-white",
+      textClassName: "text-[#D95F39]",
+    },
+    done: {
+      label: "Done",
+      dotClassName: "bg-[#1A3C34]",
+      cardClassName: "border-[#1A3C34]/20 bg-white",
+      textClassName: "text-[#1A3C34]",
+    },
+    failed: {
+      label: "Failed",
+      dotClassName: "bg-[#D95F39]",
+      cardClassName: "border-[#D95F39]/40 bg-[#D95F39]/5",
+      textClassName: "text-[#D95F39]",
+    },
+  };
+  const item = config[state] ?? config.waiting;
+  const activeClassName = active
+    ? "border-[#D95F39] bg-[#D95F39]/10"
+    : item.cardClassName;
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`min-w-0 border p-4 text-left transition-colors hover:border-[#D95F39]/60 ${activeClassName}`}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="shrink-0 text-[10px] font-black uppercase tracking-[0.14em] text-[#1A3C34]/35">
+            0{index}
+          </span>
+          <span className="truncate text-[14px] font-black uppercase tracking-[0.12em] text-[#1A3C34]">
+            {label}
+          </span>
+        </div>
+        <span className={`inline-flex shrink-0 items-center gap-2 text-[9px] font-black uppercase tracking-[0.12em] ${item.textClassName}`}>
+          <span className={`h-2 w-2 shrink-0 rounded-full ${item.dotClassName}`} />
+          {item.label}
+        </span>
+      </div>
+      <div className="mt-3 text-[11px] font-medium leading-relaxed text-[#1A3C34]/55">
+        {detail}
+      </div>
+    </button>
+  );
+}
+
+function SummaryMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="border border-[#1A3C34]/10 bg-white px-4 py-3">
+      <div className="text-[10px] font-black uppercase tracking-[0.16em] text-[#1A3C34]/35">{label}</div>
+      <div className="mt-1 truncate text-[13px] font-black text-[#1A3C34]">{value}</div>
+    </div>
+  );
+}
+
 function ParameterCard({ label, value }: { label: string; value: string }) {
   return (
     <div className="border border-[#1A3C34]/10 bg-[#F2F0EB]/35 p-4">
       <div className="text-[10px] font-black uppercase tracking-[0.18em] text-[#1A3C34]/40">{label}</div>
-      <div className="mt-2 text-2xl font-black tracking-tight text-[#1A3C34]">{value}</div>
+      <div className="mt-2 break-words text-base font-black text-[#1A3C34]">{value}</div>
     </div>
+  );
+}
+
+function KeyValuePanel({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="border border-[#1A3C34]/10 bg-[#F2F0EB]/45 p-4">
+      <div className="text-[10px] font-black uppercase tracking-[0.18em] text-[#1A3C34]/40">{label}</div>
+      <div className="mt-2 break-all text-[12px] font-medium text-[#1A3C34]/65">{value}</div>
+    </div>
+  );
+}
+
+function ArtifactLink({ href, label }: { href: string; label: string }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className="inline-flex h-9 items-center border border-[#1A3C34] px-3 text-[10px] font-black uppercase tracking-[0.14em] text-[#1A3C34] hover:bg-[#1A3C34] hover:text-[#F2F0EB]"
+    >
+      {label}
+    </a>
   );
 }

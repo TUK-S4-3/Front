@@ -5,6 +5,7 @@ import type {
   CreateSceneJobPayload,
   CreateSceneJobResponse,
   JobViewerResponse,
+  RunSceneJobGsResponse,
   SceneKeyframeSetsResponse,
   SceneJobProgressResponse,
   SceneJobsResponse,
@@ -67,8 +68,13 @@ export function getSceneJobs(sceneId: string | number, options: GetSceneJobsOpti
   });
 }
 
-export function getJobViewer(jobId: string | number) {
-  return request<JobViewerResponse>(`/api/v1/jobs/${encodeURIComponent(String(jobId))}/viewer`, {
+export function getJobViewer(jobId: string | number, options: { view?: "sfm" | "gs" } = {}) {
+  const params = new URLSearchParams();
+  if (options.view) {
+    params.set("view", options.view);
+  }
+  const query = params.toString();
+  return request<JobViewerResponse>(`/api/v1/jobs/${encodeURIComponent(String(jobId))}/viewer${query ? `?${query}` : ""}`, {
     auth: true,
   });
 }
@@ -79,10 +85,20 @@ export function createSceneJob(sceneId: string | number, payload: CreateSceneJob
     body: {
       pipeline: payload.pipeline ?? "3dgs",
       keyframeSetId: payload.keyframeSetId ?? null,
-      sourceJobId: payload.sourceJobId ?? null,
     },
     auth: true,
   });
+}
+
+export function runSceneJobGs(sceneId: string | number, jobId: string | number) {
+  return request<RunSceneJobGsResponse>(
+    `/api/v1/scenes/${encodeURIComponent(String(sceneId))}/jobs/${encodeURIComponent(String(jobId))}/gs`,
+    {
+      method: "POST",
+      body: {},
+      auth: true,
+    }
+  );
 }
 
 export function getSceneKeyframeSets(sceneId: string | number) {

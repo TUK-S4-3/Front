@@ -150,7 +150,7 @@ export type VideoScenesResponse = {
   items: VideoScene[];
 };
 
-export type JobStatus = "queued" | "processing" | "ready" | "failed" | "canceled";
+export type JobStatus = "queued" | "processing" | "waiting_gs" | "ready" | "failed" | "canceled";
 
 export type SceneJob = {
   id: number;
@@ -159,6 +159,7 @@ export type SceneJob = {
   sourceJobId?: string | number | null;
   keyframeSet?: SceneKeyframeSet | null;
   batchJobId?: string | null;
+  gsBatchJobId?: string | null;
   uploadId?: string | number | null;
   pipeline?: string | null;
   status: string;
@@ -178,10 +179,30 @@ export type SceneJob = {
   overlap?: number | null;
   iteration?: number | null;
   sfmResultKey?: string | null;
+  sfmResultUrl?: string | null;
   gaussianSplatKey?: string | null;
+  gaussianSplatUrl?: string | null;
   meshKey?: string | null;
+  meshUrl?: string | null;
   thumbnailKey?: string | null;
+  thumbnailUrl?: string | null;
+  resultKey?: string | null;
+  resultUrl?: string | null;
+  outputs?: {
+    resultKey?: string | null;
+    resultUrl?: string | null;
+    gaussianSplatKey?: string | null;
+    gaussianSplatUrl?: string | null;
+    meshKey?: string | null;
+    meshUrl?: string | null;
+    sfmResultKey?: string | null;
+    sfmResultUrl?: string | null;
+    thumbnailKey?: string | null;
+    thumbnailUrl?: string | null;
+  };
   viewerReady?: boolean;
+  viewerKind?: "sfm" | "gs" | string | null;
+  canRunGs?: boolean;
   postable?: boolean;
   alreadyPosted?: boolean;
 };
@@ -204,6 +225,8 @@ export type SceneKeyframeSet = {
   selectedFramesCsvKey?: string | null;
   metricsKey?: string | null;
   configKey?: string | null;
+  latentHtmlKey?: string | null;
+  latentHtmlUrl?: string | null;
   frameIndexPlotKey?: string | null;
   frameIndexPlotUrl?: string | null;
   timelineComparisonKey?: string | null;
@@ -225,6 +248,8 @@ export type CreateSceneKeyframeSetResponse = {
   keyframeSet: SceneKeyframeSet;
   jobId: number | string;
   batchJobId?: string | null;
+  pipeline?: string;
+  iteration?: number;
   runner?: string;
   statusKey?: string;
 };
@@ -251,6 +276,7 @@ export type JobViewerResponse = {
   file: ViewerFileMeta | null;
   updatedAt: string;
   viewerReady?: boolean;
+  viewerKind?: "sfm" | "gs" | string | null;
   postable?: boolean;
   alreadyPosted?: boolean;
   postId?: number | null;
@@ -297,9 +323,8 @@ export type PostThumbnailCompleteResponse = {
 };
 
 export type CreateSceneJobPayload = {
-  pipeline?: "3dgs" | "sfm" | "gs";
+  pipeline?: "3dgs" | "sfm";
   keyframeSetId?: string | number | null;
-  sourceJobId?: string | number | null;
 };
 
 export type CreateSceneJobResponse = {
@@ -309,6 +334,18 @@ export type CreateSceneJobResponse = {
   keyframeSet?: SceneKeyframeSet | null;
   batchJobId?: string;
   runner?: string;
+  progressKey?: string;
+  statusKey?: string;
+};
+
+export type RunSceneJobGsResponse = {
+  jobId: number | string;
+  sceneId: string | number;
+  pipeline?: string;
+  status: string;
+  batchJobId?: string | null;
+  runner?: string;
+  sourceSfmPrefix?: string;
   progressKey?: string;
   statusKey?: string;
 };
@@ -342,4 +379,6 @@ export type SceneJobProgressResponse = {
   detail?: string;
   updatedAt?: string;
   metrics?: JobProgressMetrics;
+  viewerKind?: "sfm" | "gs" | string | null;
+  canRunGs?: boolean;
 };

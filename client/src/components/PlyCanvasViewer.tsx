@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { AlertCircle, RotateCcw } from "lucide-react";
+import { AlertCircle, Minus, Plus, RotateCcw } from "lucide-react";
+import * as THREE from "three";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 
 type PlyCanvasViewerProps = {
   url: string;
@@ -16,18 +18,46 @@ type ParsedHeader = {
 
 type ParsedCloud = {
   points: Float32Array;
+  colors: Uint8Array | null;
   count: number;
+  sourceCount: number;
 };
 
-type CameraState = {
-  yaw: number;
-  pitch: number;
-  zoom: number;
-  panX: number;
-  panY: number;
+type PointCloudCamera = {
+  position: { set: (x: number, y: number, z: number) => void };
+  up: { set: (x: number, y: number, z: number) => void };
+  aspect: number;
+  updateProjectionMatrix: () => void;
 };
 
-const MAX_RENDER_POINTS = 50000;
+type PointCloudControls = InstanceType<typeof OrbitControls>;
+
+type PointCloudMaterial = {
+  uniforms: {
+    pointSize: { value: number };
+  };
+  needsUpdate: boolean;
+  dispose: () => void;
+};
+
+type PointCloudGeometry = {
+  dispose: () => void;
+};
+
+type PointCloudRenderer = {
+  domElement: HTMLCanvasElement;
+  setPixelRatio: (pixelRatio: number) => void;
+  setClearColor: (color: number, alpha?: number) => void;
+  setSize: (width: number, height: number, updateStyle?: boolean) => void;
+  render: (scene: unknown, camera: unknown) => void;
+  dispose: () => void;
+};
+
+const MAX_RENDER_POINTS = 220000;
+const DEFAULT_POINT_SIZE = 2;
+const MIN_POINT_SIZE = 1;
+const MAX_POINT_SIZE = 5;
+const POINT_CLOUD_ROTATION_X = Math.PI;
 
 const END_HEADER_CRLF = new TextEncoder().encode("end_header\r\n");
 const END_HEADER_LF = new TextEncoder().encode("end_header\n");
@@ -172,6 +202,10 @@ function parseAsciiCloud(buffer: ArrayBuffer, header: ParsedHeader) {
   const xIndex = header.properties.findIndex((property) => property.name === "x");
   const yIndex = header.properties.findIndex((property) => property.name === "y");
   const zIndex = header.properties.findIndex((property) => property.name === "z");
+  const redIndex = header.properties.findIndex((property) => property.name === "red" || property.name === "r");
+  const greenIndex = header.properties.findIndex((property) => property.name === "green" || property.name === "g");
+  const blueIndex = header.properties.findIndex((property) => property.name === "blue" || property.name === "b");
+  const hasColor = redIndex >= 0 && greenIndex >= 0 && blueIndex >= 0;
   if (xIndex < 0 || yIndex < 0 || zIndex < 0) {
     throw new Error("PLY vertex 좌표(x,y,z) 속성이 없습니다.");
   }
@@ -179,6 +213,7 @@ function parseAsciiCloud(buffer: ArrayBuffer, header: ParsedHeader) {
   const step = Math.max(1, Math.ceil(header.vertexCount / MAX_RENDER_POINTS));
   const capacity = Math.ceil(header.vertexCount / step);
   const raw = new Float32Array(capacity * 3);
+  const colors = hasColor ? new Uint8Array(capacity * 3) : null;
   let vertexIndex = 0;
   let writeIndex = 0;
 
@@ -191,6 +226,9 @@ function parseAsciiCloud(buffer: ArrayBuffer, header: ParsedHeader) {
     const x = Number(tokens[xIndex]);
     const y = Number(tokens[yIndex]);
     const z = Number(tokens[zIndex]);
+    const red = hasColor ? clamp(Number(tokens[redIndex]), 0, 255) : 0;
+    const green = hasColor ? clamp(Number(tokens[greenIndex]), 0, 255) : 0;
+    const blue = hasColor ? clamp(Number(tokens[blueIndex]), 0, 255) : 0;
     const shouldKeep = vertexIndex % step === 0;
     vertexIndex += 1;
 
@@ -202,6 +240,11 @@ function parseAsciiCloud(buffer: ArrayBuffer, header: ParsedHeader) {
     raw[base] = x;
     raw[base + 1] = y;
     raw[base + 2] = z;
+    if (colors) {
+      colors[base] = red;
+      colors[base + 1] = green;
+      colors[base + 2] = blue;
+    }
     writeIndex += 1;
   }
 
@@ -209,13 +252,22 @@ function parseAsciiCloud(buffer: ArrayBuffer, header: ParsedHeader) {
     throw new Error("렌더링 가능한 vertex가 없습니다.");
   }
 
-  return { points: normalizePoints(raw, writeIndex), count: writeIndex };
+  return {
+    points: normalizePoints(raw, writeIndex),
+    colors: colors ? colors.subarray(0, writeIndex * 3) : null,
+    count: writeIndex,
+    sourceCount: header.vertexCount
+  };
 }
 
 function parseBinaryCloud(buffer: ArrayBuffer, header: ParsedHeader) {
   const xIndex = header.properties.findIndex((property) => property.name === "x");
   const yIndex = header.properties.findIndex((property) => property.name === "y");
   const zIndex = header.properties.findIndex((property) => property.name === "z");
+  const redIndex = header.properties.findIndex((property) => property.name === "red" || property.name === "r");
+  const greenIndex = header.properties.findIndex((property) => property.name === "green" || property.name === "g");
+  const blueIndex = header.properties.findIndex((property) => property.name === "blue" || property.name === "b");
+  const hasColor = redIndex >= 0 && greenIndex >= 0 && blueIndex >= 0;
   if (xIndex < 0 || yIndex < 0 || zIndex < 0) {
     throw new Error("PLY vertex 좌표(x,y,z) 속성이 없습니다.");
   }
@@ -231,6 +283,7 @@ function parseBinaryCloud(buffer: ArrayBuffer, header: ParsedHeader) {
   const step = Math.max(1, Math.ceil(header.vertexCount / MAX_RENDER_POINTS));
   const capacity = Math.ceil(header.vertexCount / step);
   const raw = new Float32Array(capacity * 3);
+  const colors = hasColor ? new Uint8Array(capacity * 3) : null;
   const view = new DataView(buffer, header.dataOffset);
   let offset = 0;
   let writeIndex = 0;
@@ -239,6 +292,9 @@ function parseBinaryCloud(buffer: ArrayBuffer, header: ParsedHeader) {
     let x = 0;
     let y = 0;
     let z = 0;
+    let red = 0;
+    let green = 0;
+    let blue = 0;
 
     for (let propertyIndex = 0; propertyIndex < readers.length; propertyIndex += 1) {
       const reader = readers[propertyIndex];
@@ -251,6 +307,9 @@ function parseBinaryCloud(buffer: ArrayBuffer, header: ParsedHeader) {
       if (propertyIndex === xIndex) x = value;
       if (propertyIndex === yIndex) y = value;
       if (propertyIndex === zIndex) z = value;
+      if (propertyIndex === redIndex) red = clamp(value, 0, 255);
+      if (propertyIndex === greenIndex) green = clamp(value, 0, 255);
+      if (propertyIndex === blueIndex) blue = clamp(value, 0, 255);
     }
 
     if (vertexIndex % step !== 0) {
@@ -261,6 +320,11 @@ function parseBinaryCloud(buffer: ArrayBuffer, header: ParsedHeader) {
     raw[base] = x;
     raw[base + 1] = y;
     raw[base + 2] = z;
+    if (colors) {
+      colors[base] = red;
+      colors[base + 1] = green;
+      colors[base + 2] = blue;
+    }
     writeIndex += 1;
   }
 
@@ -268,7 +332,12 @@ function parseBinaryCloud(buffer: ArrayBuffer, header: ParsedHeader) {
     throw new Error("렌더링 가능한 vertex가 없습니다.");
   }
 
-  return { points: normalizePoints(raw, writeIndex), count: writeIndex };
+  return {
+    points: normalizePoints(raw, writeIndex),
+    colors: colors ? colors.subarray(0, writeIndex * 3) : null,
+    count: writeIndex,
+    sourceCount: header.vertexCount
+  };
 }
 
 function parsePly(arrayBuffer: ArrayBuffer): ParsedCloud {
@@ -284,62 +353,83 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
-function drawCloud(
-  context: CanvasRenderingContext2D,
-  width: number,
-  height: number,
-  cloud: ParsedCloud,
-  camera: CameraState
-) {
-  context.clearRect(0, 0, width, height);
-  context.fillStyle = "#F2F0EB";
-  context.fillRect(0, 0, width, height);
-
-  const halfWidth = width / 2;
-  const halfHeight = height / 2;
-  const focal = Math.min(width, height) * 0.85;
-  const pointSize = Math.max(1, 2.2 / camera.zoom);
-  const cosYaw = Math.cos(camera.yaw);
-  const sinYaw = Math.sin(camera.yaw);
-  const cosPitch = Math.cos(camera.pitch);
-  const sinPitch = Math.sin(camera.pitch);
-  const points = cloud.points;
-
-  context.fillStyle = "#1A3C34";
-  for (let i = 0; i < cloud.count; i += 1) {
-    const base = i * 3;
-    const x = points[base];
-    const y = points[base + 1];
-    const z = points[base + 2];
-
-    const x1 = cosYaw * x + sinYaw * z;
-    const z1 = -sinYaw * x + cosYaw * z;
-    const y1 = cosPitch * y - sinPitch * z1;
-    const z2 = sinPitch * y + cosPitch * z1;
-
-    const depth = z2 + camera.zoom + 2.6;
-    if (depth <= 0.05) continue;
-
-    const screenX = halfWidth + ((x1 + camera.panX) * focal) / depth;
-    const screenY = halfHeight - ((y1 + camera.panY) * focal) / depth;
-
-    if (screenX < 0 || screenX >= width || screenY < 0 || screenY >= height) {
-      continue;
-    }
-
-    context.fillRect(screenX, screenY, pointSize, pointSize);
-  }
+function fitCamera(camera: PointCloudCamera, controls: PointCloudControls) {
+  camera.position.set(0, 0.55, 2.6);
+  camera.up.set(0, 1, 0);
+  controls.target.set(0, 0, 0);
+  controls.update();
 }
 
-function initialCamera(): CameraState {
-  return { yaw: 0, pitch: 0.2, zoom: 2.4, panX: 0, panY: 0 };
+function createPointCloud(cloud: ParsedCloud, pointSize: number) {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(cloud.points, 3));
+  geometry.computeBoundingSphere();
+
+  if (cloud.colors) {
+    geometry.setAttribute("color", new THREE.BufferAttribute(cloud.colors, 3, true));
+  } else {
+    const fallbackColors = new Uint8Array(cloud.count * 3);
+    for (let i = 0; i < cloud.count; i += 1) {
+      const base = i * 3;
+      fallbackColors[base] = 242;
+      fallbackColors[base + 1] = 240;
+      fallbackColors[base + 2] = 235;
+    }
+    geometry.setAttribute("color", new THREE.BufferAttribute(fallbackColors, 3, true));
+  }
+
+  const material = new THREE.ShaderMaterial({
+    uniforms: {
+      pointSize: { value: pointSize },
+      opacity: { value: cloud.colors ? 0.96 : 0.88 },
+    },
+    vertexShader: `
+      attribute vec3 color;
+      varying vec3 vColor;
+      uniform float pointSize;
+
+      void main() {
+        vColor = color;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        gl_PointSize = pointSize;
+      }
+    `,
+    fragmentShader: `
+      varying vec3 vColor;
+      uniform float opacity;
+
+      void main() {
+        vec2 centered = gl_PointCoord - vec2(0.5);
+        float radius = length(centered);
+        if (radius > 0.5) {
+          discard;
+        }
+        float edge = smoothstep(0.5, 0.34, radius);
+        gl_FragColor = vec4(vColor, opacity * edge);
+      }
+    `,
+    transparent: true,
+    depthWrite: false,
+  });
+
+  const points = new THREE.Points(geometry, material);
+  points.rotation.x = POINT_CLOUD_ROTATION_X;
+
+  return {
+    points,
+    geometry: geometry as PointCloudGeometry,
+    material: material as PointCloudMaterial,
+  };
 }
 
 export default function PlyCanvasViewer({ url }: PlyCanvasViewerProps) {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const cameraRef = useRef<CameraState>(initialCamera());
-  const drawRef = useRef<() => void>(() => {});
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const cameraRef = useRef<PointCloudCamera | null>(null);
+  const controlsRef = useRef<PointCloudControls | null>(null);
+  const materialRef = useRef<PointCloudMaterial | null>(null);
+  const pointSizeRef = useRef(DEFAULT_POINT_SIZE);
   const [cloud, setCloud] = useState<ParsedCloud | null>(null);
+  const [pointSize, setPointSize] = useState(DEFAULT_POINT_SIZE);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -348,7 +438,7 @@ export default function PlyCanvasViewer({ url }: PlyCanvasViewerProps) {
     setCloud(null);
     setLoading(true);
     setError("");
-    cameraRef.current = initialCamera();
+    setPointSize(DEFAULT_POINT_SIZE);
 
     (async () => {
       try {
@@ -376,120 +466,191 @@ export default function PlyCanvasViewer({ url }: PlyCanvasViewerProps) {
   }, [url]);
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || !cloud) return undefined;
+    pointSizeRef.current = pointSize;
+    const material = materialRef.current;
+    if (!material) return;
+    material.uniforms.pointSize.value = pointSize;
+    material.needsUpdate = true;
+  }, [pointSize]);
 
-    const context = canvas.getContext("2d");
-    if (!context) return undefined;
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root || !cloud) return undefined;
+
+    root.replaceChildren();
+
+    let renderer: PointCloudRenderer;
+    try {
+      renderer = new THREE.WebGLRenderer({
+        antialias: true,
+        alpha: false,
+        powerPreference: "high-performance",
+      }) as PointCloudRenderer;
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : "WebGL 뷰어 초기화에 실패했습니다.";
+      setError(message);
+      return undefined;
+    }
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x090b0e);
+
+    const camera = new THREE.PerspectiveCamera(54, 1, 0.01, 100) as PointCloudCamera;
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+    controls.minDistance = 0.35;
+    controls.maxDistance = 8;
+    controls.panSpeed = 0.75;
+    controls.rotateSpeed = 0.85;
+    fitCamera(camera, controls);
+    cameraRef.current = camera;
+    controlsRef.current = controls;
+
+    const { points, geometry, material } = createPointCloud(cloud, pointSizeRef.current);
+    materialRef.current = material;
+    scene.add(points);
+
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setClearColor(0x090b0e, 1);
+    renderer.domElement.style.width = "100%";
+    renderer.domElement.style.height = "100%";
+    renderer.domElement.style.display = "block";
+    renderer.domElement.style.touchAction = "none";
+    root.appendChild(renderer.domElement);
 
     const resize = () => {
-      const rect = canvas.getBoundingClientRect();
-      canvas.width = Math.max(1, Math.floor(rect.width));
-      canvas.height = Math.max(1, Math.floor(rect.height));
-      drawRef.current();
+      const rect = root.getBoundingClientRect();
+      const width = Math.max(1, Math.floor(rect.width || root.clientWidth || 1));
+      const height = Math.max(1, Math.floor(rect.height || root.clientHeight || 1));
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+      renderer.setSize(width, height, false);
     };
 
-    const draw = () => {
-      drawCloud(context, canvas.width, canvas.height, cloud, cameraRef.current);
-    };
-    drawRef.current = draw;
-
-    const drag = { active: false, x: 0, y: 0, mode: "rotate" as "rotate" | "pan" };
-
-    const onPointerDown = (event: PointerEvent) => {
-      drag.active = true;
-      drag.x = event.clientX;
-      drag.y = event.clientY;
-      drag.mode = event.button === 2 || event.shiftKey ? "pan" : "rotate";
-      canvas.setPointerCapture(event.pointerId);
+    let frameId = 0;
+    const animate = () => {
+      frameId = window.requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
     };
 
-    const onPointerMove = (event: PointerEvent) => {
-      if (!drag.active) return;
-      const dx = event.clientX - drag.x;
-      const dy = event.clientY - drag.y;
-      drag.x = event.clientX;
-      drag.y = event.clientY;
-
-      if (drag.mode === "rotate") {
-        cameraRef.current.yaw += dx * 0.01;
-        cameraRef.current.pitch = clamp(cameraRef.current.pitch + dy * 0.01, -1.35, 1.35);
-      } else {
-        cameraRef.current.panX += dx * 0.004;
-        cameraRef.current.panY -= dy * 0.004;
-      }
-      draw();
-    };
-
-    const onPointerUp = (event: PointerEvent) => {
-      drag.active = false;
-      if (canvas.hasPointerCapture(event.pointerId)) {
-        canvas.releasePointerCapture(event.pointerId);
-      }
-    };
-
-    const onWheel = (event: WheelEvent) => {
-      event.preventDefault();
-      cameraRef.current.zoom = clamp(cameraRef.current.zoom + event.deltaY * 0.002, 1.1, 8);
-      draw();
-    };
-
-    const onContextMenu = (event: MouseEvent) => {
-      event.preventDefault();
-    };
-
-    window.addEventListener("resize", resize);
-    canvas.addEventListener("pointerdown", onPointerDown);
-    canvas.addEventListener("pointermove", onPointerMove);
-    canvas.addEventListener("pointerup", onPointerUp);
-    canvas.addEventListener("pointercancel", onPointerUp);
-    canvas.addEventListener("wheel", onWheel, { passive: false });
-    canvas.addEventListener("contextmenu", onContextMenu);
+    const resizeObserver = new ResizeObserver(resize);
+    resizeObserver.observe(root);
     resize();
+    animate();
 
     return () => {
-      window.removeEventListener("resize", resize);
-      canvas.removeEventListener("pointerdown", onPointerDown);
-      canvas.removeEventListener("pointermove", onPointerMove);
-      canvas.removeEventListener("pointerup", onPointerUp);
-      canvas.removeEventListener("pointercancel", onPointerUp);
-      canvas.removeEventListener("wheel", onWheel);
-      canvas.removeEventListener("contextmenu", onContextMenu);
+      window.cancelAnimationFrame(frameId);
+      resizeObserver.disconnect();
+      controls.dispose();
+      geometry.dispose();
+      material.dispose();
+      renderer.dispose();
+      if (renderer.domElement.parentElement === root) {
+        root.removeChild(renderer.domElement);
+      }
+      cameraRef.current = null;
+      controlsRef.current = null;
+      materialRef.current = null;
     };
   }, [cloud]);
 
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const key = event.key.toLowerCase();
+      if (key === "r") {
+        handleResetView();
+      }
+      if (key === "p") {
+        setPointSize((current) => {
+          if (current < 1.75) return 2.5;
+          if (current < 3.5) return 4;
+          return DEFAULT_POINT_SIZE;
+        });
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, []);
+
   const handleResetView = () => {
-    cameraRef.current = initialCamera();
-    drawRef.current();
+    const camera = cameraRef.current;
+    const controls = controlsRef.current;
+    if (!camera || !controls) return;
+    fitCamera(camera, controls);
+  };
+
+  const handleDecreasePointSize = () => {
+    setPointSize((current) => clamp(Number((current - 0.5).toFixed(1)), MIN_POINT_SIZE, MAX_POINT_SIZE));
+  };
+
+  const handleIncreasePointSize = () => {
+    setPointSize((current) => clamp(Number((current + 0.5).toFixed(1)), MIN_POINT_SIZE, MAX_POINT_SIZE));
   };
 
   return (
-    <div className="relative w-full h-full min-h-[320px] border border-[#1A3C34]/10 bg-[#F2F0EB]">
-      <canvas ref={canvasRef} className="w-full h-full block" />
+    <div className="absolute inset-0 overflow-hidden bg-[#090B0E]">
+      <div ref={rootRef} className="h-full w-full" />
 
-      <div className="absolute left-3 top-3 right-3 flex items-center justify-between gap-3">
-        <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#1A3C34]/55 bg-white/90 px-3 py-2 border border-[#1A3C34]/10">
-          좌클릭 드래그: 회전 / Shift+드래그: 이동 / 휠: 줌
+      <div className="pointer-events-none absolute left-4 top-20 md:top-24">
+        <div className="border border-white/15 bg-black/45 px-4 py-3 text-white/80 backdrop-blur-sm">
+          <div className="text-[10px] font-black uppercase tracking-[0.18em] text-white/45">
+            SfM Point Cloud
+          </div>
+          <div className="mt-1 text-[12px] font-bold tracking-wide text-white">
+            {cloud ? `${cloud.count.toLocaleString("ko-KR")} points` : "Loading"}
+          </div>
+          {cloud && cloud.sourceCount !== cloud.count && (
+            <div className="mt-1 text-[10px] font-medium text-white/45">
+              sampled from {cloud.sourceCount.toLocaleString("ko-KR")}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="pointer-events-auto absolute right-4 top-20 md:top-24 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={handleDecreasePointSize}
+          className="inline-flex h-9 w-9 items-center justify-center border border-white/20 bg-black/45 text-white/80 backdrop-blur-sm hover:border-[#D95F39] hover:text-[#D95F39]"
+          aria-label="Decrease point size"
+        >
+          <Minus size={14} />
+        </button>
+        <div className="h-9 border border-white/15 bg-black/45 px-3 text-[10px] font-black uppercase tracking-[0.14em] leading-9 text-white/70 backdrop-blur-sm">
+          Point {pointSize.toFixed(1)}px
         </div>
         <button
           type="button"
-          onClick={handleResetView}
-          className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-[0.18em] px-3 py-2 bg-white/90 border border-[#1A3C34]/15 text-[#1A3C34] hover:border-[#D95F39] hover:text-[#D95F39]"
+          onClick={handleIncreasePointSize}
+          className="inline-flex h-9 w-9 items-center justify-center border border-white/20 bg-black/45 text-white/80 backdrop-blur-sm hover:border-[#D95F39] hover:text-[#D95F39]"
+          aria-label="Increase point size"
         >
-          <RotateCcw size={12} />
+          <Plus size={14} />
+        </button>
+        <button
+          type="button"
+          onClick={handleResetView}
+          className="inline-flex h-9 items-center gap-2 border border-white/20 bg-black/45 px-3 text-[10px] font-black uppercase tracking-[0.14em] text-white/80 backdrop-blur-sm hover:border-[#D95F39] hover:text-[#D95F39]"
+        >
+          <RotateCcw size={13} />
           Reset
         </button>
       </div>
 
       {loading && (
-        <div className="absolute inset-0 flex items-center justify-center bg-[#F2F0EB]/90 text-[11px] font-black uppercase tracking-[0.3em] text-[#1A3C34]/45">
-          PLY Loading...
+        <div className="absolute inset-0 flex items-center justify-center bg-[#090B0E]/90 text-[11px] font-black uppercase tracking-[0.3em] text-white/55">
+          Point Cloud Loading...
         </div>
       )}
 
       {error && (
-        <div className="absolute inset-0 flex items-center justify-center bg-[#F2F0EB]/95 p-6">
-          <div className="max-w-md bg-white border border-[#D95F39]/30 text-[#D95F39] px-5 py-4 text-[11px] font-bold tracking-wide flex items-start gap-3">
+        <div className="absolute inset-0 flex items-center justify-center bg-[#090B0E]/95 p-6">
+          <div className="flex max-w-md items-start gap-3 border border-[#D95F39]/50 bg-black/50 px-5 py-4 text-[11px] font-bold tracking-wide text-[#FF8C6E]">
             <AlertCircle size={16} className="mt-0.5 shrink-0" />
             <span>{error}</span>
           </div>
