@@ -30,6 +30,12 @@ export type SessionResponse = {
   user: SessionUser | null;
 };
 
+export type DemoLoginResponse = {
+  ok: boolean;
+  message: string;
+  user: SessionUser | null;
+};
+
 export type UserProfile = {
   id: number;
   email?: string | null;
@@ -212,6 +218,28 @@ export type SceneJobsResponse = {
   inputVideoKey?: string | null;
   jobs: SceneJob[];
   nextCursor: string | null;
+};
+
+export type DeleteSceneResponse = {
+  ok: boolean;
+  sceneId: string | number;
+  message?: string;
+};
+
+export type DeleteSceneJobResponse = {
+  ok: boolean;
+  sceneId: string | number;
+  jobId: string | number;
+  message?: string;
+};
+
+export type CancelSceneJobResponse = {
+  ok: boolean;
+  sceneId: string | number;
+  jobId: string | number;
+  status: string;
+  stage?: string | null;
+  message?: string;
 };
 
 export type SceneKeyframeSet = {

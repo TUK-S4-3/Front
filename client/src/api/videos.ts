@@ -1,9 +1,12 @@
 import { request } from "./http";
 import type {
   ActivateSceneKeyframeSetResponse,
+  CancelSceneJobResponse,
   CreateSceneKeyframeSetResponse,
   CreateSceneJobPayload,
   CreateSceneJobResponse,
+  DeleteSceneJobResponse,
+  DeleteSceneResponse,
   JobViewerResponse,
   RunSceneJobGsResponse,
   SceneKeyframeSetsResponse,
@@ -66,6 +69,34 @@ export function getSceneJobs(sceneId: string | number, options: GetSceneJobsOpti
   return request<SceneJobsResponse>(`/api/v1/scenes/${encodeURIComponent(String(sceneId))}/jobs?${params.toString()}`, {
     auth: true,
   });
+}
+
+export function deleteScene(sceneId: string | number) {
+  return request<DeleteSceneResponse>(`/api/v1/scenes/${encodeURIComponent(String(sceneId))}`, {
+    method: "DELETE",
+    auth: true,
+  });
+}
+
+export function deleteSceneJob(sceneId: string | number, jobId: string | number) {
+  return request<DeleteSceneJobResponse>(
+    `/api/v1/scenes/${encodeURIComponent(String(sceneId))}/jobs/${encodeURIComponent(String(jobId))}`,
+    {
+      method: "DELETE",
+      auth: true,
+    }
+  );
+}
+
+export function cancelSceneJob(sceneId: string | number, jobId: string | number) {
+  return request<CancelSceneJobResponse>(
+    `/api/v1/scenes/${encodeURIComponent(String(sceneId))}/jobs/${encodeURIComponent(String(jobId))}/cancel`,
+    {
+      method: "POST",
+      body: {},
+      auth: true,
+    }
+  );
 }
 
 export function getJobViewer(jobId: string | number, options: { view?: "sfm" | "gs" } = {}) {

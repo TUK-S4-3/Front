@@ -1,5 +1,5 @@
 import { request } from "./http";
-import type { LoginResponse, SessionResponse, SignupResponse } from "./types";
+import type { DemoLoginResponse, LoginResponse, SessionResponse, SignupResponse } from "./types";
 
 export const SESSION_USER_REFRESH_EVENT = "session-user-refresh";
 
@@ -19,6 +19,12 @@ export async function signup(email: string, password: string) {
 
 export async function me() {
   return request<SessionResponse>("/api/auth/me");
+}
+
+export async function demoLogin() {
+  return request<DemoLoginResponse>("/api/auth/demo/login", {
+    method: "POST",
+  });
 }
 
 export async function logout() {

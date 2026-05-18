@@ -2,7 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   activateSceneKeyframeSet,
+  cancelSceneJob,
   createSceneJob,
+  deleteScene,
+  deleteSceneJob,
   getSceneJobProgress,
   getSceneJobs,
   getSceneKeyframeSets,
@@ -13,7 +16,7 @@ import Layout from "../components/Layout";
 import { Separator } from "../components/ui/separator";
 import {
   ArrowLeft, AlertCircle,
-  HardDrive, RefreshCw, Loader2, Sparkles
+  HardDrive, RefreshCw, Loader2, Sparkles, Trash2
 } from "lucide-react";
 
 type JobProgressView = {
@@ -89,6 +92,24 @@ function mapCreateJobError(error: unknown) {
   return "Job 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.";
 }
 
+function mapDeleteError(error: unknown) {
+  const message = String(error instanceof Error ? error.message : error);
+  if (message.includes("HTTP 401")) return "로그인이 필요합니다.";
+  if (message.includes("HTTP 403")) return "해당 Scene에 접근 권한이 없습니다.";
+  if (message.includes("HTTP 404")) return "삭제 대상을 찾을 수 없습니다.";
+  if (message.includes("HTTP 409")) return "실행 중인 Job은 삭제할 수 없습니다.";
+  return "삭제에 실패했습니다. 잠시 후 다시 시도해 주세요.";
+}
+
+function mapCancelError(error: unknown) {
+  const message = String(error instanceof Error ? error.message : error);
+  if (message.includes("HTTP 401")) return "로그인이 필요합니다.";
+  if (message.includes("HTTP 403")) return "해당 Scene에 접근 권한이 없습니다.";
+  if (message.includes("JOB_NOT_CANCELABLE")) return "완료되었거나 실패한 Job은 중단할 수 없습니다.";
+  if (message.includes("LOCAL_PIPELINE_REQUIRED")) return "로컬 파이프라인 Job만 중단할 수 있습니다.";
+  return "Job 중단에 실패했습니다. 잠시 후 다시 시도해 주세요.";
+}
+
 function normalizeProgress(value: number | undefined) {
   if (!Number.isFinite(value)) return 0;
   return Math.min(1, Math.max(0, Number(value)));
@@ -159,7 +180,10 @@ export default function UploadDetailPage() {
   const [jobProgress, setJobProgress] = useState<JobProgressView | null>(null);
   const [jobsLoading, setJobsLoading] = useState(true);
   const [creatingJob, setCreatingJob] = useState(false);
+  const [cancelingJob, setCancelingJob] = useState(false);
   const [activatingKeyframeSet, setActivatingKeyframeSet] = useState(false);
+  const [deletingJob, setDeletingJob] = useState(false);
+  const [deletingScene, setDeletingScene] = useState(false);
   const [activePipelineTab, setActivePipelineTab] = useState<PipelineTab>("ks");
   const [err, setErr] = useState("");
 
@@ -284,6 +308,9 @@ export default function UploadDetailPage() {
     if (selectedJob) return normalizeJobStatus(selectedJob.status);
     return "queued";
   }, [currentProgress, selectedJob]);
+  const canCancelSelectedJob =
+    Boolean(selectedJob) &&
+    (currentStatus === "queued" || currentStatus === "processing" || currentStatus === "waiting_gs");
 
   const syncJobProgress = useCallback(
     async (jobId: number, isCanceled?: () => boolean) => {
@@ -406,6 +433,28 @@ export default function UploadDetailPage() {
     }
   };
 
+  const handleCancelSelectedJob = async () => {
+    if (!sceneIdText || selectedJobId == null || !canCancelSelectedJob || cancelingJob) return;
+    const confirmed = window.confirm(`Job ${selectedJobId}를 중단할까요? 현재 stage의 중간 산출물은 삭제됩니다.`);
+    if (!confirmed) return;
+
+    setCancelingJob(true);
+    setErr("");
+    try {
+      await cancelSceneJob(sceneIdText, selectedJobId);
+      setJobProgress((current) =>
+        current && current.jobId === selectedJobId
+          ? { ...current, status: "canceled", detail: "사용자에 의해 중단됨" }
+          : current
+      );
+      await Promise.all([fetchJobs(selectedJobId), fetchKeyframeSets()]);
+    } catch (caught) {
+      setErr(mapCancelError(caught));
+    } finally {
+      setCancelingJob(false);
+    }
+  };
+
   const handleActivateKeyframeSet = async () => {
     if (!sceneIdText || selectedKeyframeSetId == null) return;
     setActivatingKeyframeSet(true);
@@ -418,6 +467,41 @@ export default function UploadDetailPage() {
       setErr(message);
     } finally {
       setActivatingKeyframeSet(false);
+    }
+  };
+
+  const handleDeleteSelectedJob = async () => {
+    if (!sceneIdText || selectedJobId == null || deletingJob) return;
+    const confirmed = window.confirm(`Job ${selectedJobId}를 삭제할까요? 이 Job의 storage 산출물도 함께 삭제됩니다.`);
+    if (!confirmed) return;
+
+    setDeletingJob(true);
+    setErr("");
+    try {
+      await deleteSceneJob(sceneIdText, selectedJobId);
+      setJobProgress(null);
+      await Promise.all([fetchJobs(null), fetchKeyframeSets()]);
+    } catch (caught) {
+      setErr(mapDeleteError(caught));
+    } finally {
+      setDeletingJob(false);
+    }
+  };
+
+  const handleDeleteScene = async () => {
+    if (!sceneIdText || deletingScene) return;
+    const confirmed = window.confirm(`Scene ${sceneIdText}를 삭제할까요? 모든 Job과 storage 데이터가 함께 삭제됩니다.`);
+    if (!confirmed) return;
+
+    setDeletingScene(true);
+    setErr("");
+    try {
+      await deleteScene(sceneIdText);
+      nav("/uploads");
+    } catch (caught) {
+      setErr(mapDeleteError(caught));
+    } finally {
+      setDeletingScene(false);
     }
   };
 
@@ -986,6 +1070,17 @@ export default function UploadDetailPage() {
                     {primaryPipelineCta.label}
                   </button>
 
+                  {canCancelSelectedJob && (
+                    <button
+                      type="button"
+                      onClick={handleCancelSelectedJob}
+                      disabled={cancelingJob || creatingJob}
+                      className="w-full h-12 border border-[#D95F39] text-[#D95F39] text-[11px] font-black uppercase tracking-[0.2em] transition-colors hover:bg-[#D95F39] hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {cancelingJob ? "중단 중" : "Job 중단"}
+                    </button>
+                  )}
+
                   <p className="text-[11px] font-medium text-[#1A3C34]/50 leading-relaxed">
                     {primaryPipelineCta.description}
                   </p>
@@ -1128,6 +1223,35 @@ export default function UploadDetailPage() {
                     )}
                   </div>
                 </details>
+
+                <Separator className="bg-[#1A3C34]/10" />
+
+                <div className="space-y-3">
+                  <h5 className="text-[11px] font-black uppercase tracking-[0.2em] text-[#D95F39]">
+                    Delete
+                  </h5>
+                  <button
+                    type="button"
+                    onClick={() => void handleDeleteSelectedJob()}
+                    disabled={!selectedJob || deletingJob || currentStatus === "queued" || currentStatus === "processing"}
+                    className="inline-flex h-10 w-full items-center justify-center gap-2 border border-[#D95F39]/30 text-[10px] font-black uppercase tracking-[0.16em] text-[#D95F39] transition-colors hover:bg-[#D95F39] hover:text-white disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-[#D95F39]"
+                  >
+                    {deletingJob ? <RefreshCw size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                    Delete Selected Job
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleDeleteScene()}
+                    disabled={deletingScene}
+                    className="inline-flex h-10 w-full items-center justify-center gap-2 bg-[#D95F39] text-[10px] font-black uppercase tracking-[0.16em] text-white transition-colors hover:bg-[#1A3C34] disabled:opacity-50"
+                  >
+                    {deletingScene ? <RefreshCw size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                    Delete Scene
+                  </button>
+                  <p className="text-[11px] font-medium leading-relaxed text-[#1A3C34]/45">
+                    삭제 시 연결된 storage 데이터도 함께 제거됩니다. 실행 중인 Job은 삭제할 수 없습니다.
+                  </p>
+                </div>
               </div>
 
             </div>

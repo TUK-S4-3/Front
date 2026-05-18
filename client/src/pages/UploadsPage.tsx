@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useState, type ChangeEvent } from "react";
 import { useNavigate } from "react-router-dom";
-import { completeVideo, getMyScenes, presignVideo, putVideoToPresignedUrl } from "../api/videos";
+import { completeVideo, deleteScene, getMyScenes, presignVideo, putVideoToPresignedUrl } from "../api/videos";
 import type { VideoScene } from "../api/types";
 import Layout from "../components/Layout";
 import { Button } from "../components/ui/button";
 import {
   UploadCloud, RefreshCw, FileText,
-  HardDrive, Sparkles
+  HardDrive, Sparkles, Trash2
 } from "lucide-react";
 
 type UploadFlowState = "idle" | "presigning" | "uploading" | "completing" | "success" | "error";
@@ -50,6 +50,16 @@ function mapSceneFetchError(error: unknown) {
   return "내 업로드 목록을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.";
 }
 
+function mapSceneDeleteError(error: unknown) {
+  const message = String(error instanceof Error ? error.message : error);
+
+  if (message.includes("HTTP 401")) return "로그인이 필요합니다.";
+  if (message.includes("HTTP 403")) return "해당 Scene에 접근 권한이 없습니다.";
+  if (message.includes("HTTP 404")) return "Scene을 찾을 수 없습니다.";
+  if (message.includes("HTTP 409")) return "실행 중인 Job이 있는 Scene은 삭제할 수 없습니다.";
+  return "Scene 삭제에 실패했습니다. 잠시 후 다시 시도해 주세요.";
+}
+
 function stateMessage(state: UploadFlowState, progress: number, sceneId: string) {
   if (state === "presigning") return "업로드 준비 중…";
   if (state === "uploading") return `파일 업로드 중… ${progress}%`;
@@ -81,6 +91,7 @@ export default function UploadsPage() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [successSceneId, setSuccessSceneId] = useState("");
   const [sceneTitle, setSceneTitle] = useState("");
+  const [deletingSceneId, setDeletingSceneId] = useState<string | number | null>(null);
 
   const isUploading = uploadState === "presigning" || uploadState === "uploading" || uploadState === "completing";
   const statusText = stateMessage(uploadState, uploadProgress, successSceneId);
@@ -161,6 +172,23 @@ export default function UploadsPage() {
     } catch (e: unknown) {
       setUploadState("error");
       setErr(mapUploadError(e));
+    }
+  };
+
+  const handleDeleteScene = async (scene: VideoScene) => {
+    if (deletingSceneId != null) return;
+    const confirmed = window.confirm(`Scene ${scene.id}를 삭제할까요? Storage 데이터와 연결된 Job도 함께 삭제됩니다.`);
+    if (!confirmed) return;
+
+    setDeletingSceneId(scene.id);
+    setErr("");
+    try {
+      await deleteScene(scene.id);
+      await fetchScenes(currentPage);
+    } catch (caught) {
+      setErr(mapSceneDeleteError(caught));
+    } finally {
+      setDeletingSceneId(null);
     }
   };
 
@@ -294,12 +322,13 @@ export default function UploadsPage() {
                       <th className="px-8 py-5">Scene</th>
                       <th className="px-4 py-5 text-center">Input Video</th>
                       <th className="px-8 py-5 text-right">Created</th>
+                      <th className="px-8 py-5 text-right">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#1A3C34]/5">
                     {scenes.length === 0 ? (
                       <tr>
-                        <td colSpan={3} className="py-24 text-center text-[#1A3C34]/20 font-bold uppercase tracking-[0.3em] text-sm">
+                        <td colSpan={4} className="py-24 text-center text-[#1A3C34]/20 font-bold uppercase tracking-[0.3em] text-sm">
                           No Session Uploads
                         </td>
                       </tr>
@@ -343,6 +372,24 @@ export default function UploadsPage() {
                             <div className="mt-2 text-[10px] font-bold text-[#1A3C34]/45">
                               {formatCreatedAt(scene.createdAt)}
                             </div>
+                          </td>
+                          <td className="px-8 py-6 text-right">
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void handleDeleteScene(scene);
+                              }}
+                              disabled={deletingSceneId === scene.id}
+                              className="inline-flex h-9 w-9 items-center justify-center border border-[#D95F39]/30 text-[#D95F39] transition-colors hover:bg-[#D95F39] hover:text-white disabled:opacity-40"
+                              aria-label={`Delete scene ${scene.id}`}
+                            >
+                              {deletingSceneId === scene.id ? (
+                                <RefreshCw size={14} className="animate-spin" />
+                              ) : (
+                                <Trash2 size={14} />
+                              )}
+                            </button>
                           </td>
                         </tr>
                       ))

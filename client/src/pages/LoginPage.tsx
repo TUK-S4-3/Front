@@ -1,12 +1,18 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "../components/ui/card";
-import { me } from "../api/auth";
+import { SESSION_USER_REFRESH_EVENT, demoLogin, me } from "../api/auth";
 import logo from "../assets/logo.png";
+
+const oauthBaseUrl = (import.meta.env.VITE_OAUTH_BASE_URL ?? "").replace(/\/+$/, "");
+const googleLoginUrl = `${oauthBaseUrl}/api/oauth2/login/google`;
+const isDemoLoginEnabled = import.meta.env.VITE_ENABLE_DEMO_LOGIN === "true";
 
 export default function LoginPage() {
   const nav = useNavigate();
   const [checking, setChecking] = useState(true);
+  const [demoLoginPending, setDemoLoginPending] = useState(false);
+  const [demoLoginError, setDemoLoginError] = useState("");
 
   useEffect(() => {
     let mounted = true;
@@ -28,10 +34,26 @@ export default function LoginPage() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [nav]);
 
   const handlePendingProvider = (provider: string) => {
     window.alert(`${provider} 로그인은 현재 준비 중입니다. 빠르게 지원하겠습니다.`);
+  };
+
+  const handleDemoLogin = async () => {
+    if (demoLoginPending) return;
+
+    setDemoLoginError("");
+    setDemoLoginPending(true);
+    try {
+      await demoLogin();
+      window.dispatchEvent(new Event(SESSION_USER_REFRESH_EVENT));
+      nav("/", { replace: true });
+    } catch {
+      setDemoLoginError("데모 로그인에 실패했습니다. 서버 설정 또는 데모 계정을 확인해주세요.");
+    } finally {
+      setDemoLoginPending(false);
+    }
   };
 
   return (
@@ -93,7 +115,7 @@ export default function LoginPage() {
 
               <CardContent className="px-10 py-10 grid gap-4">
                 <a
-                  href="/api/oauth2/login/google"
+                  href={googleLoginUrl}
                   className="flex h-[52px] w-full items-center rounded-[6px] border border-[#747775] bg-white px-4 text-[#1F1F1F] transition-colors hover:bg-[#f8f9fa] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1A3C34]/20"
                 >
                   <span className="inline-flex h-5 w-5 items-center justify-center">
@@ -126,6 +148,26 @@ export default function LoginPage() {
                   <NaverSymbol />
                   <span className="ml-3 text-[15px] font-semibold leading-none">네이버로 로그인</span>
                 </button>
+
+                {isDemoLoginEnabled && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleDemoLogin}
+                      disabled={demoLoginPending}
+                      className="flex h-[52px] w-full items-center justify-center rounded-[6px] border border-[#D95F39]/30 bg-[#D95F39] px-4 text-white transition-colors hover:bg-[#c94f2b] disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D95F39]/20"
+                    >
+                      <span className="text-[15px] font-semibold leading-none">
+                        {demoLoginPending ? "데모 계정 로그인 중" : "데모 계정으로 로그인"}
+                      </span>
+                    </button>
+                    {demoLoginError && (
+                      <p className="text-[11px] font-semibold leading-relaxed text-[#D95F39]">
+                        {demoLoginError}
+                      </p>
+                    )}
+                  </>
+                )}
               </CardContent>
 
               <CardFooter className="px-10 pb-12">

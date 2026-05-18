@@ -23,9 +23,16 @@ type ParsedCloud = {
   sourceCount: number;
 };
 
+type PointCloudVector3 = {
+  set: (x: number, y: number, z: number) => void;
+  applyAxisAngle: (axis: PointCloudVector3, angle: number) => PointCloudVector3;
+  normalize: () => PointCloudVector3;
+  lengthSq: () => number;
+};
+
 type PointCloudCamera = {
-  position: { set: (x: number, y: number, z: number) => void };
-  up: { set: (x: number, y: number, z: number) => void };
+  position: PointCloudVector3;
+  up: PointCloudVector3;
   aspect: number;
   updateProjectionMatrix: () => void;
 };
@@ -353,6 +360,23 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
+function shouldIgnoreHotkeyTarget(target: EventTarget | null) {
+  const element = target as HTMLElement | null;
+  if (!element) return false;
+  const tag = element.tagName?.toLowerCase();
+  if (tag === "input" || tag === "textarea" || tag === "select") return true;
+  if (element.isContentEditable) return true;
+  return false;
+}
+
+function applyCameraRoll(camera: PointCloudCamera, controls: PointCloudControls, deltaRadians: number) {
+  const viewAxis = new THREE.Vector3().subVectors(camera.position, controls.target).normalize();
+  if (viewAxis.lengthSq() < 1e-12) return;
+
+  camera.up.applyAxisAngle(viewAxis, deltaRadians).normalize();
+  controls.update();
+}
+
 function fitCamera(camera: PointCloudCamera, controls: PointCloudControls) {
   camera.position.set(0, 0.55, 2.6);
   camera.up.set(0, 1, 0);
@@ -558,11 +582,26 @@ export default function PlyCanvasViewer({ url }: PlyCanvasViewerProps) {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (shouldIgnoreHotkeyTarget(event.target)) return;
+
       const key = event.key.toLowerCase();
+      if (key === "q" || key === "e") {
+        const camera = cameraRef.current;
+        const controls = controlsRef.current;
+        if (!camera || !controls) return;
+
+        event.preventDefault();
+        const baseStep = event.shiftKey ? (Math.PI / 24) : (Math.PI / 72);
+        const delta = key === "q" ? -baseStep : baseStep;
+        applyCameraRoll(camera, controls, delta);
+        return;
+      }
       if (key === "r") {
+        event.preventDefault();
         handleResetView();
       }
       if (key === "p") {
+        event.preventDefault();
         setPointSize((current) => {
           if (current < 1.75) return 2.5;
           if (current < 3.5) return 4;
